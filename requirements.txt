@@ -1,0 +1,9 @@
+fastapi
+uvicorn
+langchain
+presidio-analyzer
+presidio-anonymizer
+rebuff
+psycopg2-binary
+redis
+python-dotenv
