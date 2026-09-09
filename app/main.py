@@ -1,4 +1,5 @@
-﻿from fastapi import FastAPI
+from fastapi import FastAPI
+from app.routes.chat import router as chat_router
 
 app = FastAPI(
     title="Enterprise LLM Security Gateway",
@@ -12,3 +13,5 @@ async def health_check():
 @app.get("/")
 async def root():
     return {"message": "Welcome to the Enterprise LLM Security Gateway"}
+
+app.include_router(chat_router)

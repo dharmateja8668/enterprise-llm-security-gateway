@@ -1,4 +1,4 @@
-﻿# Request Flow Lifecycle
+# Request Flow Lifecycle
 
 This document outlines the planned lifecycle of a request as it travels through the Enterprise LLM Security Gateway.
 
@@ -9,14 +9,14 @@ Internal application sends a prompt to the Security Gateway.
 FastAPI receives the request.
 
 **Step 3:**
-Gateway identifies the requested LLM provider.
+Gateway identifies the requested LLM provider (Implemented in Day 2 via `provider` field).
 
 **Step 4:**
 Gateway performs security checks.
 *(These checks are planned for later implementation.)*
 
 **Step 5:**
-Gateway forwards the safe request to the selected LLM provider.
+Gateway forwards the safe request to the selected LLM provider (Implemented in Day 2 via `ProviderFactory`).
 
 **Step 6:**
 LLM provider returns the response.
