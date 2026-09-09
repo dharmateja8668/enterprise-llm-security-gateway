@@ -49,19 +49,63 @@ Internal Application
 - Docker (Planned)
 - Kubernetes (Planned)
 
-## Current Day 1 Status
+## Current Project Status (Day 2 Completed)
 
-Day 1 completed:
-- Initial project structure
-- FastAPI foundation
-- /health endpoint
-- Gateway architecture design
-- Proxy request/response flow planning
-- Multiple LLM provider routing design
-- Initial documentation
-- Basic testing foundation
+Day 1 Completed:
+- Initial project structure, FastAPI foundation, architecture design
 
-Day 1 focuses on architecture and planning. Actual LLM provider proxy implementation is planned for Day 2.
+Day 2 Completed:
+- Basic working LLM proxy gateway
+- POST `/v1/chat/completions` endpoint implemented
+- Pydantic models for structured requests and responses
+- Provider abstraction interface (OpenAI & Anthropic)
+- Dynamic routing based on the `provider` field in the request
+- Basic error handling and validation
+- Configuration via environment variables (`.env`)
+- Unit tests for validation and routing
+
+### How to Run the Gateway
+
+1. Configure environment variables in a `.env` file (or export them):
+   ```env
+   OPENAI_API_KEY=your-openai-api-key
+   ANTHROPIC_API_KEY=your-anthropic-api-key
+   ```
+   **Important:** Never hardcode your API keys.
+
+2. Install dependencies:
+   ```bash
+   pip install -r requirements.txt
+   ```
+
+3. Start the FastAPI server:
+   ```bash
+   uvicorn app.main:app --reload
+   ```
+
+4. Verify it's running by checking the interactive docs:
+   Open [http://127.0.0.1:8000/docs](http://127.0.0.1:8000/docs) in your browser.
+
+### Making a Request
+
+Send a POST request to `/v1/chat/completions`:
+
+```bash
+curl -X 'POST' \
+  'http://127.0.0.1:8000/v1/chat/completions' \
+  -H 'accept: application/json' \
+  -H 'Content-Type: application/json' \
+  -d '{
+  "provider": "openai",
+  "model": "gpt-4o",
+  "messages": [
+    {
+      "role": "user",
+      "content": "Hello! What is your name?"
+    }
+  ]
+}'
+```
 
 ## Future Development Plan
 
