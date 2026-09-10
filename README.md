@@ -49,20 +49,19 @@ Internal Application
 - Docker (Planned)
 - Kubernetes (Planned)
 
-## Current Project Status (Day 2 Completed)
+## Current Project Status (Day 3 Completed)
 
 Day 1 Completed:
 - Initial project structure, FastAPI foundation, architecture design
 
 Day 2 Completed:
-- Basic working LLM proxy gateway
-- POST `/v1/chat/completions` endpoint implemented
-- Pydantic models for structured requests and responses
-- Provider abstraction interface (OpenAI & Anthropic)
-- Dynamic routing based on the `provider` field in the request
-- Basic error handling and validation
-- Configuration via environment variables (`.env`)
-- Unit tests for validation and routing
+- Basic working LLM proxy gateway routing structure
+
+Day 3 Completed:
+- Mock LLM Core Routing implemented
+- GET `/health` endpoint returning `{"status": "healthy"}`
+- POST `/chat` endpoint with basic Pydantic validation
+- Modular mock LLM service
 
 ### How to Run the Gateway
 
@@ -86,10 +85,49 @@ Day 2 Completed:
 4. Verify it's running by checking the interactive docs:
    Open [http://127.0.0.1:8000/docs](http://127.0.0.1:8000/docs) in your browser.
 
-### Making a Request
+### Available Endpoints & Examples
 
-Send a POST request to `/v1/chat/completions`:
+#### 1. Health Endpoint (`GET /health`)
+Used to verify the gateway is up and running.
 
+**Example Request:**
+```bash
+curl -X 'GET' 'http://127.0.0.1:8000/health'
+```
+
+**Example Response:**
+```json
+{
+  "status": "healthy"
+}
+```
+
+#### 2. Chat Endpoint (`POST /chat`)
+Used to send a prompt to the Mock LLM.
+
+**Example Request:**
+```bash
+curl -X 'POST' \
+  'http://127.0.0.1:8000/chat' \
+  -H 'accept: application/json' \
+  -H 'Content-Type: application/json' \
+  -d '{
+  "prompt": "Explain cybersecurity"
+}'
+```
+
+**Example Response:**
+```json
+{
+  "success": true,
+  "response": "This is a mock LLM response."
+}
+```
+
+#### 3. Advanced Chat Completions (`POST /v1/chat/completions`)
+Legacy/Advanced routing to specific providers.
+
+**Example Request:**
 ```bash
 curl -X 'POST' \
   'http://127.0.0.1:8000/v1/chat/completions' \
