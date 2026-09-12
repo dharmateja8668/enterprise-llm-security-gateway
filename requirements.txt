@@ -7,3 +7,6 @@ rebuff
 psycopg2-binary
 redis
 python-dotenv
+fakeredis
+httpx
+pytest
