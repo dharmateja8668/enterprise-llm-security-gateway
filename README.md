@@ -49,12 +49,14 @@ Internal Application
 - LangChain (Planned)
 - Microsoft Presidio (Planned)
 - Rebuff (Planned)
-- PostgreSQL (Planned)
+- PostgreSQL (Day 6 Logging — Active)
 - **Redis — Day 5 Rate Limiting (Active)**
+- Microsoft Presidio (Planned)
+- Rebuff (Planned)
 - Docker (Planned)
 - Kubernetes (Planned)
 
-## Current Project Status (Day 5 Completed)
+## Current Project Status (Day 6 Completed)
 
 Day 1 Completed:
 - Initial project structure, FastAPI foundation, architecture design
@@ -75,12 +77,20 @@ Day 4 Completed:
 - 401 Unauthorized for missing or invalid tokens
 
 Day 5 Completed:
-- **Redis-based rate limiting** — 10 requests per minute per authenticated user
+- Redis-based rate limiting — 10 requests per minute per authenticated user
 - Per-user counters stored in Redis (keyed by user token)
 - `429 Too Many Requests` with `Retry-After` header when limit exceeded
 - `REDIS_URL` environment variable for Redis configuration
 - Rate limiting applies **only after** successful authentication
 - `/health` is **not** rate limited
+
+Day 6 Completed:
+- PostgreSQL database setup for request/audit logging
+- Replaced SQLite placeholder with real PostgreSQL connection
+- `request_logs` table implemented via SQLAlchemy ORM
+- Safe token hashing — raw bearer tokens are hashed with SHA-256 before storage
+- Environment variable configuration for DB (host, port, user, password, db)
+- Automatic log entry creation upon successful `/chat` request
 
 ---
 
@@ -185,18 +195,65 @@ Retry-After: 42
 
 ---
 
+## Database Logging (Day 6)
+
+Every successful request to the `/chat` endpoint is logged to PostgreSQL for auditing purposes. 
+
+### What is logged:
+- `request_id`: Unique UUID for the request
+- `user_token`: A truncated SHA-256 hash of the bearer token (for client correlation). The raw secret is **never** stored.
+- `provider`: The LLM provider used (e.g., `ollama`)
+- `model`: The specific model used (e.g., `llama3.2:3b`)
+- `prompt`: The user's input
+- `timestamp`: UTC time of the request
+- `status`: Request status (`success`)
+
+### PostgreSQL Configuration
+
+The application uses SQLAlchemy to connect to the database. Configure it using these environment variables:
+
+```env
+POSTGRES_USER=dev_user
+POSTGRES_PASSWORD=your-secure-postgres-password
+POSTGRES_HOST=localhost
+POSTGRES_PORT=5432
+POSTGRES_DB=gateway
+```
+
+If these are not set, the application will fallback to a local SQLite database (`gateway.db`) for testing/development purposes. 
+
+### Running PostgreSQL locally
+
+**Option 1 — Docker (recommended):**
+```bash
+docker run -d \
+  --name postgres-gateway \
+  -e POSTGRES_USER=dev_user \
+  -e POSTGRES_PASSWORD=your-secure-postgres-password \
+  -e POSTGRES_DB=gateway \
+  -p 5432:5432 \
+  postgres:15-alpine
+```
+
+---
+
 ## How to Run the Gateway
 
 1. Configure environment variables in a `.env` file (or export them):
    ```env
-   OPENAI_API_KEY=your-openai-api-key
-   ANTHROPIC_API_KEY=your-anthropic-api-key
    GATEWAY_API_KEY=your-secret-gateway-token
    REDIS_URL=redis://localhost:6379
+   OLLAMA_BASE_URL=http://localhost:11434
+   OLLAMA_MODEL=llama3.2:3b
+   POSTGRES_USER=dev_user
+   POSTGRES_PASSWORD=your-secure-postgres-password
+   POSTGRES_HOST=localhost
+   POSTGRES_PORT=5432
+   POSTGRES_DB=gateway
    ```
    **Important:** Never hardcode API keys, tokens, or passwords.
 
-2. Start Redis (see "Running Redis locally" above).
+2. Start Redis and PostgreSQL (see sections above for Docker commands).
 
 3. Install dependencies:
    ```bash
@@ -304,8 +361,8 @@ Tests use `fakeredis` — **no real Redis server is needed to run tests.**
 ## Future Development Plan
 
 Later stages will implement:
-- LLM provider proxy routing
-- PostgreSQL audit logging
+- LLM provider proxy routing (OpenAI/Anthropic)
+- Error path logging to PostgreSQL
 - Microsoft Presidio PII/PHI detection and redaction
 - Rebuff prompt injection detection
 - Response/content safety

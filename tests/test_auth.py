@@ -1,5 +1,7 @@
 import os
 import pytest
+import respx
+import httpx
 import fakeredis
 from fastapi.testclient import TestClient
 from app.main import app
@@ -7,16 +9,14 @@ import app.security.rate_limiter as rate_limiter_module
 
 client = TestClient(app)
 
-@pytest.fixture(autouse=True)
-def set_env():
-    """Set the API key and inject a fake Redis so rate limiting doesn't need a real server."""
-    os.environ["GATEWAY_API_KEY"] = "secret-token-123"
-    # Inject an in-memory Redis so auth tests don't fail due to Redis being unavailable
-    fake = fakeredis.FakeRedis(decode_responses=True)
-    rate_limiter_module.set_redis_client(fake)
-    yield
-    del os.environ["GATEWAY_API_KEY"]
-    rate_limiter_module.reset_redis_client()
+# Minimal Ollama response used whenever a 200 is expected
+_OLLAMA_OK = {
+    "model": "tinyllama",
+    "message": {"role": "assistant", "content": "Test response from Ollama."},
+    "done": True,
+}
+
+
 
 def test_chat_no_auth():
     response = client.post("/chat", json={"prompt": "test"})
@@ -28,8 +28,13 @@ def test_chat_invalid_token():
     assert response.status_code == 401
     assert response.json()["detail"] == "Invalid authentication token"
 
+@respx.mock
 def test_chat_valid_token():
-    response = client.post("/chat", json={"prompt": "test"}, headers={"Authorization": "Bearer secret-token-123"})
+    """Valid auth → Ollama called → 200."""
+    respx.post("http://localhost:11434/api/chat").mock(
+        return_value=httpx.Response(200, json=_OLLAMA_OK)
+    )
+    response = client.post("/chat", json={"prompt": "test"}, headers={"Authorization": "Bearer test-token"})
     assert response.status_code == 200
     assert response.json()["success"] is True
 

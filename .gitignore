@@ -8,3 +8,6 @@ venv/
 env/
 .idea/
 .vscode/
+
+gateway.db
+openapi.json

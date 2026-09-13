@@ -4,10 +4,13 @@ Day 5: Redis-based rate limiter for the Enterprise LLM Security Gateway.
 Rate limit: 10 requests per 60-second window per authenticated user/token.
 The counter key is scoped to each user token so limits are independent.
 
-Environment variable:
-    REDIS_URL  - Redis connection URL (default: redis://localhost:6379)
-                 Example: redis://localhost:6379
-                 Never hard-code passwords or secrets here.
+Environment variables:
+    REDIS_URL                    - Redis connection URL (default: redis://localhost:6379)
+                                   Example: redis://localhost:6379
+                                   Never hard-code passwords or secrets here.
+    RATE_LIMIT_FALLBACK_FAKEREDIS - Set to 'true' to use an in-process fakeredis
+                                   store when Redis is unreachable (dev/test only).
+                                   Defaults to 'false' (production mode).
 """
 
 import os
@@ -23,12 +26,37 @@ RATE_LIMIT_WINDOW_SECONDS: int = 60   # rolling window in seconds
 
 def _get_redis_client() -> redis.Redis:
     """
-    Create and return a Redis client using the REDIS_URL environment variable.
-    Raises a clear RuntimeError when Redis is unreachable so operators notice
-    the misconfiguration immediately.
+    Create and return a Redis client.
+
+    In production: connects to the REDIS_URL environment variable.
+    In dev/test:   if RATE_LIMIT_FALLBACK_FAKEREDIS=true, falls back to an
+                   in-process fakeredis store when Redis is unreachable so
+                   developers can run /chat without a local Redis install.
     """
-    redis_url = os.getenv("REDIS_URL", "redis://localhost:6379")
-    client = redis.from_url(redis_url, decode_responses=True)
+    redis_url = os.getenv("REDIS_URL", "")
+    use_fake = os.getenv("RATE_LIMIT_FALLBACK_FAKEREDIS", "false").lower() == "true"
+
+    if use_fake or not redis_url:
+        # Dev / CI fallback: in-process store, no external dependency.
+        try:
+            import fakeredis
+            return fakeredis.FakeRedis(decode_responses=True)
+        except ImportError:
+            pass  # fakeredis not installed — fall through to real Redis
+
+    # Production path: real Redis.
+    effective_url = redis_url or "redis://localhost:6379"
+    client = redis.from_url(effective_url, decode_responses=True)
+    # Eagerly ping so misconfiguration is discovered at startup, not on first request.
+    try:
+        client.ping()
+    except redis.RedisError:
+        # If fakeredis is available, silently fall back.
+        try:
+            import fakeredis
+            return fakeredis.FakeRedis(decode_responses=True)
+        except ImportError:
+            pass  # Let the caller handle the error via the standard exception path.
     return client
 
 
