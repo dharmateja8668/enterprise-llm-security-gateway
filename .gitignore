@@ -1,0 +1,13 @@
+__pycache__/
+*.py[cod]
+*.pyc
+*$py.class
+.env
+venv/
+.venv/
+env/
+.idea/
+.vscode/
+
+gateway.db
+openapi.json
