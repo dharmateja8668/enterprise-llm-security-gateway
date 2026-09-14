@@ -7,6 +7,7 @@ load_dotenv()  # must happen before any module that reads os.getenv()
 
 from fastapi import FastAPI
 from app.db import engine, Base
+from app.models import audit
 from app.routes.chat import router as chat_router
 from app.routes.basic_chat import router as basic_chat_router
 from app.providers.ollama import OllamaProvider
