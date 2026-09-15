@@ -2,15 +2,19 @@
 app/routes/basic_chat.py
 POST /chat — The primary gateway chat endpoint.
 
-Security flow (Day 1–6):
+Security flow (Day 1–6 + Week 2):
   1. Authentication     — verify_api_key()       → 401 if missing/invalid
   2. Rate Limiting      — check_rate_limit()     → 429 if over 10 req/min
-  3. PII/PHI Redaction  — (planned: Presidio)    → strips PII before LLM sees it
-  4. Injection Detection— (planned: Rebuff)      → rejects malicious prompts
-  5. Ollama LLM         — OllamaProvider.chat()  → real model response
-  6. Content Safety     — (planned)              → screens response
-  7. Audit Logging      — (planned: PostgreSQL)  → records interaction
+  3. PII Detection      — analyze_pii()          → detects PII (Day 1: log only)
+  4. PII/PHI Redaction  — (planned: Day 2–3)     → strips PII before LLM sees it
+  5. Injection Detection— (planned: Rebuff)      → rejects malicious prompts
+  6. Ollama LLM         — OllamaProvider.chat()  → real model response
+  7. Content Safety     — (planned)              → screens response
+  8. Audit Logging      — PostgreSQL             → records interaction
 """
+
+import logging
+from typing import List, Optional
 
 from fastapi import APIRouter, HTTPException, Depends, Security
 from fastapi.security import HTTPBearer
@@ -18,10 +22,13 @@ from pydantic import BaseModel
 from app.security.auth import verify_api_key
 from app.security.rate_limiter import check_rate_limit
 from app.providers.ollama import OllamaProvider
+from app.services.pii_analyzer import analyze_pii, summarize_pii
 from sqlalchemy.orm import Session
 from app.models.log import RequestLog
 from app.db import get_db
 import hashlib
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(tags=["Chat"], dependencies=[Security(HTTPBearer(auto_error=False))])
 
@@ -58,10 +65,18 @@ class SimpleChatRequest(BaseModel):
     prompt: str
 
 
+class PIISummary(BaseModel):
+    """Summary of PII entities detected in the prompt (Week 2, Day 1)."""
+    pii_detected: bool
+    count: int
+    entity_types: List[str]
+
+
 class SimpleChatResponse(BaseModel):
     success: bool
     response: str
     model: str
+    pii_summary: Optional[PIISummary] = None
 
 
 @router.post("/chat", response_model=SimpleChatResponse)
@@ -73,7 +88,8 @@ async def chat_endpoint(
     POST /chat — authenticated, rate-limited gateway to the internal Ollama LLM.
 
     Full request flow:
-      User → FastAPI → Auth (Day 4) → Rate Limit (Day 5) → Ollama (Day 6) → User
+      User → FastAPI → Auth (Day 4) → Rate Limit (Day 5)
+      → PII Detection (Week 2) → Ollama (Day 6) → User
     """
     ollama = _get_ollama()
     
@@ -87,12 +103,24 @@ async def chat_endpoint(
     if not request.prompt or not request.prompt.strip():
         raise HTTPException(status_code=400, detail="Prompt cannot be empty")
 
-    # ── Day 6b (placeholder): PII/PHI Redaction via Microsoft Presidio ──────
-    # safe_prompt = presidio_redact(request.prompt)   # <── Day 7 will add this
+    # ── Week 2 Day 1: PII Detection (detection only — no redaction yet) ────
+    pii_entities = analyze_pii(request.prompt, score_threshold=0.0)
+    pii_summary_data = summarize_pii(pii_entities)
+    pii_summary = PIISummary(**pii_summary_data)
+
+    if pii_summary.pii_detected:
+        logger.warning(
+            "PII detected in prompt: %d entit(ies), types=%s",
+            pii_summary.count,
+            pii_summary.entity_types,
+        )
+
+    # ── Week 2 Day 2–3 (placeholder): PII/PHI Redaction via Presidio ───────
+    # safe_prompt = presidio_redact(request.prompt)   # ← Day 2–3 will add this
     safe_prompt = request.prompt
 
-    # ── Day 6c (placeholder): Prompt Injection Detection via Rebuff ─────────
-    # check_injection(safe_prompt)                    # <── Day 7 will add this
+    # ── (placeholder): Prompt Injection Detection via Rebuff ────────────────
+    # check_injection(safe_prompt)                    # ← Week 3 will add this
 
     # ── Day 6: Internal LLM (Ollama) ────────────────────────────────────────
     try:
@@ -110,10 +138,10 @@ async def chat_endpoint(
         db.commit()
         raise
 
-    # ── Day 6d (placeholder): Response Content Safety ───────────────────────
-    # response_text = safety_screen(response_text)   # <── Day 7 will add this
+    # ── (placeholder): Response Content Safety ──────────────────────────────
+    # response_text = safety_screen(response_text)   # ← future
 
-    # ── Day 6e (placeholder): Audit Logging via PostgreSQL ──────────────────
+    # ── Audit Logging via PostgreSQL ────────────────────────────────────────
     # Log request and response to PostgreSQL
     log_entry = RequestLog(
         user_token=_token_identifier(user_token),
@@ -129,4 +157,5 @@ async def chat_endpoint(
         success=True,
         response=response_text,
         model=ollama.model,
+        pii_summary=pii_summary,
     )
