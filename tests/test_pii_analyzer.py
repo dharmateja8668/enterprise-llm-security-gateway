@@ -115,6 +115,56 @@ class TestMultiplePII:
         assert len(entities) >= 3
 
 
+class TestMultipleOccurrences:
+    """Detect multiple instances of the same PII type."""
+
+    def test_multiple_emails(self):
+        text = "Contact alice@example.com or bob@example.com."
+        entities = analyze_pii(text)
+        emails = [e for e in entities if e.entity_type == "EMAIL_ADDRESS"]
+        assert len(emails) == 2
+        assert "alice@example.com" in [e.text_snippet for e in emails]
+        assert "bob@example.com" in [e.text_snippet for e in emails]
+
+
+class TestFalsePositives:
+    """Ensure false positives are minimized for sensitive cases."""
+
+    def test_false_positive_context(self):
+        # A sequence of 9 digits without SSN context shouldn't necessarily be an SSN.
+        # But just to be sure, testing a generic string that might trigger false positives.
+        text = "The internal order number is 123456789."
+        entities = analyze_pii(text)
+        ssn_entities = [e for e in entities if e.entity_type == "US_SSN"]
+        assert len(ssn_entities) == 0
+
+
+class TestEdgeCases:
+    """Test extreme input scenarios."""
+
+    def test_empty_prompt(self):
+        entities = analyze_pii("")
+        assert len(entities) == 0
+
+    def test_short_prompt(self):
+        entities = analyze_pii("Hi")
+        assert len(entities) == 0
+
+    def test_long_prompt(self):
+        # A very long prompt without PII
+        text = "This is a long prompt. " * 1000
+        entities = analyze_pii(text)
+        assert len(entities) == 0
+
+    def test_multiple_pii_close_together(self):
+        text = "Contact alice@example.com,bob@example.com,4111111111111111."
+        entities = analyze_pii(text)
+        types = {e.entity_type for e in entities}
+        assert "EMAIL_ADDRESS" in types
+        assert "CREDIT_CARD" in types
+        assert len(entities) >= 3
+
+
 class TestCleanText:
     """No PII should be detected in generic text."""
 
