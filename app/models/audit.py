@@ -12,6 +12,7 @@ class AuditLog(Base):
     prompt = Column(Text, nullable=False)  # raw JSON of messages
     response = Column(Text, nullable=True)
     status = Column(String, nullable=False)  # "success" or "error"
+    status_code = Column(Integer, nullable=True) # HTTP status code
     error_message = Column(Text, nullable=True)
     latency_ms = Column(Integer, nullable=False)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
