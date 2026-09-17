@@ -24,7 +24,7 @@ from app.security.rate_limiter import check_rate_limit
 from app.providers.ollama import OllamaProvider
 from app.services.pii_analyzer import analyze_pii, summarize_pii
 from sqlalchemy.orm import Session
-from app.models.log import RequestLog
+# from app.models.log import RequestLog
 from app.db import get_db
 import hashlib
 
@@ -122,36 +122,52 @@ async def chat_endpoint(
     # ── (placeholder): Prompt Injection Detection via Rebuff ────────────────
     # check_injection(safe_prompt)                    # ← Week 3 will add this
 
+    import time
+    import uuid
+    from app.models.audit import AuditLog
+
+    start_time = time.time()
+    req_id = str(uuid.uuid4())
+
     # ── Day 6: Internal LLM (Ollama) ────────────────────────────────────────
     try:
         response_text = await ollama.chat(safe_prompt)
+        status = "success"
+        status_code = 200
+        error_msg = None
     except Exception as e:
-        # Log the failure before returning the error to the user
-        log_entry = RequestLog(
-            user_token=_token_identifier(user_token),
+        response_text = None
+        status = "error"
+        status_code = getattr(e, "status_code", 500)
+        error_msg = str(e)
+
+    latency_ms = int((time.time() - start_time) * 1000)
+
+    # ── Audit Logging via PostgreSQL ────────────────────────────────────────
+    try:
+        log_entry = AuditLog(
+            request_id=req_id,
+            user_id=_token_identifier(user_token),
             provider="ollama",
             model=ollama.model,
             prompt=request.prompt,
-            status="error",
+            response=response_text,
+            status=status,
+            status_code=status_code,
+            error_message=error_msg,
+            latency_ms=latency_ms,
         )
         db.add(log_entry)
         db.commit()
-        raise
+    except Exception as db_err:
+        logger.error(f"Failed to write audit log to database: {db_err}")
+        db.rollback()
+
+    if status == "error":
+        raise HTTPException(status_code=status_code, detail=error_msg)
 
     # ── (placeholder): Response Content Safety ──────────────────────────────
     # response_text = safety_screen(response_text)   # ← future
-
-    # ── Audit Logging via PostgreSQL ────────────────────────────────────────
-    # Log request and response to PostgreSQL
-    log_entry = RequestLog(
-        user_token=_token_identifier(user_token),
-        provider="ollama",
-        model=ollama.model,
-        prompt=request.prompt,
-        status="success",
-    )
-    db.add(log_entry)
-    db.commit()
 
     return SimpleChatResponse(
         success=True,
