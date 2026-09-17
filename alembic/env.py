@@ -27,8 +27,8 @@ def _get_url() -> str:
     if url:
         return url
     user = os.getenv("POSTGRES_USER")
-    password = os.getenv("POSTGRES_PASSWORD","630561")
-    host = os.getenv("POSTGRES_HOST", "localhost")
+    password = os.getenv("POSTGRES_PASSWORD")
+    host = os.getenv("POSTGRES_HOST", "127.0.0.1")
     port = os.getenv("POSTGRES_PORT", "5432")
     db = os.getenv("POSTGRES_DB", "gateway")
     if user and password:
