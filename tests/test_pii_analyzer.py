@@ -408,13 +408,13 @@ class TestChatPIIIntegration:
         assert data["pii_summary"]["pii_detected"] is False
         assert data["pii_summary"]["count"] == 0
 
-    def test_chat_does_not_redact_prompt(self):
-        """Day 1: PII is detected but the original prompt is NOT modified."""
+    def test_chat_redacts_prompt_with_anonymization(self):
+        """Day 4-6: PII is detected and the prompt IS anonymized."""
         import respx
         import httpx
-
+    
         captured_body = {}
-
+    
         def capture_request(request):
             import json
             captured_body["prompt"] = json.loads(request.content.decode())["messages"][0]["content"]
@@ -426,19 +426,19 @@ class TestChatPIIIntegration:
                     "done": True,
                 },
             )
-
+    
         with respx.mock:
             respx.post("http://localhost:11434/api/chat").mock(
                 side_effect=capture_request
             )
-
+    
             original_prompt = "My email is rahul@example.com."
             resp = client.post(
                 "/chat",
                 json={"prompt": original_prompt},
                 headers={"Authorization": "Bearer test-token"},
             )
-
+    
         assert resp.status_code == 200
-        # The prompt sent to Ollama must still contain the original PII
-        assert captured_body["prompt"] == original_prompt
+        # The prompt sent to Ollama must be anonymized
+        assert captured_body["prompt"] == "My email is <EMAIL_ADDRESS_1>."

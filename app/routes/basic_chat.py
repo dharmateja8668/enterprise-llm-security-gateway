@@ -23,8 +23,9 @@ from app.security.auth import verify_api_key
 from app.security.rate_limiter import check_rate_limit
 from app.providers.ollama import OllamaProvider
 from app.services.pii_analyzer import analyze_pii, summarize_pii
+from app.services.pii_anonymizer import anonymize, deanonymize
 from sqlalchemy.orm import Session
-# from app.models.log import RequestLog
+from app.models.log import RequestLog
 from app.db import get_db
 import hashlib
 
@@ -115,16 +116,14 @@ async def chat_endpoint(
             pii_summary.entity_types,
         )
 
-    # ── Week 2 Day 2–3 (placeholder): PII/PHI Redaction via Presidio ───────
-    # safe_prompt = presidio_redact(request.prompt)   # ← Day 2–3 will add this
-    safe_prompt = request.prompt
+    # ── Week 2 Day 4–6: PII/PHI Anonymization via Presidio ──────────────────
+    safe_prompt, pii_mapping = anonymize(request.prompt)
 
     # ── (placeholder): Prompt Injection Detection via Rebuff ────────────────
     # check_injection(safe_prompt)                    # ← Week 3 will add this
 
     import time
     import uuid
-    from app.models.audit import AuditLog
 
     start_time = time.time()
     req_id = str(uuid.uuid4())
@@ -145,17 +144,13 @@ async def chat_endpoint(
 
     # ── Audit Logging via PostgreSQL ────────────────────────────────────────
     try:
-        log_entry = AuditLog(
+        log_entry = RequestLog(
             request_id=req_id,
-            user_id=_token_identifier(user_token),
+            user_token=_token_identifier(user_token),
             provider="ollama",
             model=ollama.model,
-            prompt=request.prompt,
-            response=response_text,
+            prompt=safe_prompt,
             status=status,
-            status_code=status_code,
-            error_message=error_msg,
-            latency_ms=latency_ms,
         )
         db.add(log_entry)
         db.commit()
@@ -169,9 +164,15 @@ async def chat_endpoint(
     # ── (placeholder): Response Content Safety ──────────────────────────────
     # response_text = safety_screen(response_text)   # ← future
 
+    # ── Week 2 Day 6: Deanonymization ───────────────────────────────────────
+    if response_text:
+        final_response = deanonymize(response_text, pii_mapping)
+    else:
+        final_response = None
+
     return SimpleChatResponse(
         success=True,
-        response=response_text,
+        response=final_response,
         model=ollama.model,
         pii_summary=pii_summary,
     )

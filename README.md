@@ -29,16 +29,18 @@ Day 4 Authentication (Bearer token)
 Day 5 Redis Rate Limiter (10 req/min/user)
         |
         v
-Provider Routing Layer
-        |
-        +------> OpenAI
-        |
-        +------> Anthropic
-        |
-        +------> Internal LLM (Mock)
+Week 2 Day 4-6: PII Anonymization (Presidio) -> <PERSON_1>
         |
         v
-Response
+Provider Routing Layer
+        |
+        +------> Ollama / OpenAI / Mock
+        |
+        v
+Response (with placeholders)
+        |
+        v
+Week 2 Day 6: PII Deanonymization -> restores Rahul
         |
         v
 Internal Application
@@ -58,30 +60,21 @@ Internal Application
 - Docker (Planned)
 - Kubernetes (Planned)
 
-## Current Day 1 Status
+## Current Status (Week 2, Day 4-6)
 
-Day 1 completed:
-- Initial project structure
-- FastAPI foundation
-- /health endpoint
-- Gateway architecture design
-- Proxy request/response flow planning
-- Multiple LLM provider routing design
-- Initial documentation
-- Basic testing foundation
-
-Day 1 focuses on architecture and planning. Actual LLM provider proxy implementation is planned for Day 2.
+Completed:
+- PII Detection using Microsoft Presidio (Week 2, Day 1-3).
+- **PII Anonymization (Week 2, Day 4):** Replaces sensitive information with deterministic placeholders (e.g., `<PERSON_1>`).
+- **Secure LLM Integration (Week 2, Day 5):** Anonymized prompt is sent to the LLM (Ollama). The raw PII is never exposed to the external LLM. Audit logs only save the anonymized prompts.
+- **Deanonymization (Week 2, Day 6):** The response from the LLM containing placeholders is restored to the original values using a request-scoped mapping.
+- All mapping is correctly handled in-memory within the scope of a single request.
 
 ## Future Development Plan
 
 Later stages will implement:
-- LLM provider proxy routing (OpenAI/Anthropic)
-- Error path logging to PostgreSQL
-- Microsoft Presidio PII/PHI detection and redaction
-- Rebuff prompt injection detection
+- Prompt injection detection (Rebuff)
 - Response/content safety
 - RBAC
 - SOC dashboard
 - Docker
 - Kubernetes deployment
->>>>>>> dharma
