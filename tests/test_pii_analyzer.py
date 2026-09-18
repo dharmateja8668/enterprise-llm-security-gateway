@@ -441,4 +441,4 @@ class TestChatPIIIntegration:
     
         assert resp.status_code == 200
         # The prompt sent to Ollama must be anonymized
-        assert captured_body["prompt"] == "My email is <EMAIL_ADDRESS_1>."
+        assert captured_body["prompt"] == "My email is <PII_EMAIL_ADDRESS_1>."

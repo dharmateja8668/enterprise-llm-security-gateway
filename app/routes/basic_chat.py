@@ -104,20 +104,29 @@ async def chat_endpoint(
     if not request.prompt or not request.prompt.strip():
         raise HTTPException(status_code=400, detail="Prompt cannot be empty")
 
-    # ── Week 2 Day 1: PII Detection (detection only — no redaction yet) ────
-    pii_entities = analyze_pii(request.prompt, score_threshold=0.0)
-    pii_summary_data = summarize_pii(pii_entities)
-    pii_summary = PIISummary(**pii_summary_data)
+    # ── Week 2 Day 1: PII Detection (detection & summary) ─────────────────
+    try:
+        pii_entities = analyze_pii(request.prompt, score_threshold=0.0)
+        pii_summary_data = summarize_pii(pii_entities)
+        pii_summary = PIISummary(**pii_summary_data)
 
-    if pii_summary.pii_detected:
-        logger.warning(
-            "PII detected in prompt: %d entit(ies), types=%s",
-            pii_summary.count,
-            pii_summary.entity_types,
+        if pii_summary.pii_detected:
+            logger.warning(
+                "PII detected in prompt: %d entit(ies), types=%s",
+                pii_summary.count,
+                pii_summary.entity_types,
+            )
+
+        # ── Week 2 Day 4–6: PII/PHI Anonymization via Presidio ──────────────
+        safe_prompt, pii_mapping = anonymize(request.prompt)
+    except HTTPException:
+        raise
+    except Exception as scan_err:
+        logger.error("Security scanning failed; rejecting request for safety: %s", scan_err)
+        raise HTTPException(
+            status_code=500,
+            detail="Security scanning failed; request rejected for safety",
         )
-
-    # ── Week 2 Day 4–6: PII/PHI Anonymization via Presidio ──────────────────
-    safe_prompt, pii_mapping = anonymize(request.prompt)
 
     # ── (placeholder): Prompt Injection Detection via Rebuff ────────────────
     # check_injection(safe_prompt)                    # ← Week 3 will add this
@@ -165,7 +174,7 @@ async def chat_endpoint(
     # response_text = safety_screen(response_text)   # ← future
 
     # ── Week 2 Day 6: Deanonymization ───────────────────────────────────────
-    if response_text:
+    if response_text is not None:
         final_response = deanonymize(response_text, pii_mapping)
     else:
         final_response = None
