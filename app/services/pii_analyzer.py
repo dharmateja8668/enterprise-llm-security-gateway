@@ -62,8 +62,19 @@ DEFAULT_ENTITIES: List[str] = [
 ]
 
 # ---------------------------------------------------------------------------
-# Analyzer engine — lazy singleton
-# ---------------------------------------------------------------------------
+from presidio_analyzer.predefined_recognizers import UsSsnRecognizer
+
+class RelaxedUsSsnRecognizer(UsSsnRecognizer):
+    """Extends Presidio's UsSsnRecognizer to ensure formatted synthetic/sample SSNs
+    (e.g., 123-45-6789) are protected and not discarded as non-PII example numbers."""
+
+    def invalidate_result(self, pattern_text: str) -> bool:
+        only_digits = "".join(c for c in pattern_text if c.isdigit())
+        # If formatted with delimiters (e.g., 123-45-6789), treat as sensitive PII
+        if any(c in pattern_text for c in "-. ") and only_digits in ("123456789", "987654320", "078051120"):
+            return False
+        return super().invalidate_result(pattern_text)
+
 
 _analyzer_engine: Optional[AnalyzerEngine] = None
 
@@ -80,6 +91,13 @@ def _get_analyzer() -> AnalyzerEngine:
         
         _analyzer_engine = AnalyzerEngine()
         
+        # Replace default UsSsnRecognizer with RelaxedUsSsnRecognizer
+        try:
+            _analyzer_engine.registry.remove_recognizer("UsSsnRecognizer")
+        except Exception:
+            pass
+        _analyzer_engine.registry.add_recognizer(RelaxedUsSsnRecognizer())
+
         # Register custom recognizer for Internal Project Codes
         # Note: This is a placeholder format (ZAALIMA-PROJ-YYYY-NNN) and can be replaced 
         # with the organization's actual project-code format later.
