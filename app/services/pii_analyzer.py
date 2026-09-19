@@ -103,7 +103,7 @@ def _get_analyzer() -> AnalyzerEngine:
         # with the organization's actual project-code format later.
         project_code_pattern = Pattern(
             name="zaalima_project_code",
-            regex=r"ZAALIMA-PROJ-\d{4}-\d{3}",
+            regex=r"ZAALIMA\s*-\s*PROJ\s*-\s*\d{4}\s*-\s*\d{3}",
             score=0.8
         )
         project_code_recognizer = PatternRecognizer(
@@ -112,6 +112,18 @@ def _get_analyzer() -> AnalyzerEngine:
         )
         _analyzer_engine.registry.add_recognizer(project_code_recognizer)
         
+        # Add embedded credit card recognizer to catch CCs without word boundaries
+        cc_pattern = Pattern(
+            name="embedded_cc",
+            regex=r"4[0-9]{12}(?:[0-9]{3})?|5[1-5][0-9]{14}|6(?:011|5[0-9][0-9])[0-9]{12}|3[47][0-9]{13}",
+            score=0.5
+        )
+        cc_recognizer = PatternRecognizer(
+            supported_entity="CREDIT_CARD",
+            patterns=[cc_pattern]
+        )
+        _analyzer_engine.registry.add_recognizer(cc_recognizer)
+
         logger.info("Presidio AnalyzerEngine ready.")
     return _analyzer_engine
 
