@@ -2,15 +2,16 @@
 app/routes/basic_chat.py
 POST /chat — The primary gateway chat endpoint.
 
-Security flow (Day 1–6 + Week 2):
-  1. Authentication     — verify_api_key()       → 401 if missing/invalid
-  2. Rate Limiting      — check_rate_limit()     → 429 if over 10 req/min
-  3. PII Detection      — analyze_pii()          → detects PII (Day 1: log only)
-  4. PII/PHI Redaction  — (planned: Day 2–3)     → strips PII before LLM sees it
-  5. Injection Detection— (planned: Rebuff)      → rejects malicious prompts
-  6. Ollama LLM         — OllamaProvider.chat()  → real model response
-  7. Content Safety     — (planned)              → screens response
-  8. Audit Logging      — PostgreSQL             → records interaction
+Security flow (Day 1–6 + Week 2 + Week 3 Day 1):
+  1. Authentication      — verify_api_key()           → 401 if missing/invalid
+  2. Rate Limiting       — check_rate_limit()         → 429 if over 10 req/min
+  3. PII Detection       — analyze_pii()              → detects PII
+  4. PII/PHI Anonymization — anonymize()              → strips PII before LLM sees it
+  5. Prompt Injection    — check_prompt_injection()   → 403 if injection detected
+  6. Ollama LLM          — OllamaProvider.chat()      → real model response
+  7. Content Safety      — (planned)                  → screens response
+  8. Deanonymization     — deanonymize()              → restores PII placeholders
+  9. Audit Logging       — PostgreSQL                 → records interaction
 """
 
 import logging
@@ -21,6 +22,7 @@ from fastapi.security import HTTPBearer
 from pydantic import BaseModel
 from app.security.auth import verify_api_key
 from app.security.rate_limiter import check_rate_limit
+from app.security.prompt_injection import check_prompt_injection
 from app.providers.ollama import OllamaProvider
 from app.services.pii_analyzer import analyze_pii, summarize_pii
 from app.services.pii_anonymizer import anonymize, deanonymize
@@ -128,8 +130,43 @@ async def chat_endpoint(
             detail="Security scanning failed; request rejected for safety",
         )
 
-    # ── (placeholder): Prompt Injection Detection via Rebuff ────────────────
-    # check_injection(safe_prompt)                    # ← Week 3 will add this
+    # ── Week 3 Day 1: Prompt Injection Detection ─────────────────────────────
+    injection_result = check_prompt_injection(safe_prompt)
+    if injection_result.is_injection:
+        logger.warning(
+            "Prompt injection blocked: method=%s risk_score=%.3f reason=%s "
+            "user_token_hash=%s",
+            injection_result.detection_method,
+            injection_result.risk_score,
+            injection_result.reason,
+            _token_identifier(user_token),
+        )
+        # Log blocked attempt to audit DB before raising.
+        try:
+            import uuid as _uuid, time as _time
+            _blocked_id = str(_uuid.uuid4())
+            _blocked_log = RequestLog(
+                request_id=_blocked_id,
+                user_token=_token_identifier(user_token),
+                provider="ollama",
+                model=_get_ollama().model,
+                prompt="[REDACTED — injection blocked]",
+                status="injection_blocked",
+            )
+            db.add(_blocked_log)
+            db.commit()
+        except Exception as _db_err:
+            logger.error("Failed to write injection-blocked audit log: %s", _db_err)
+            db.rollback()
+        raise HTTPException(
+            status_code=403,
+            detail={
+                "error": "Prompt injection detected",
+                "blocked": True,
+                "reason": injection_result.reason,
+                "detection_method": injection_result.detection_method,
+            },
+        )
 
     import time
     import uuid
