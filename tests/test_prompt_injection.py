@@ -62,14 +62,33 @@ _OLLAMA_OK_RESPONSE = {
 
 @pytest.fixture(autouse=True)
 def _reset_env_and_rebuff(monkeypatch):
-    """Ensure each test starts with a clean env and no cached Rebuff client."""
+    """Ensure each test starts with a clean env and no cached Rebuff/ML clients.
+
+    ML detection is disabled for Day 1 tests because:
+    1. Day 1 tests cover heuristic + Rebuff only.
+    2. Enabling ML would trigger a model download during test collection.
+    3. ML behaviour is tested separately in tests/test_ml_prompt_injection.py.
+    """
     monkeypatch.setenv("PROMPT_INJECTION_ENABLED", "true")
     monkeypatch.setenv("PROMPT_INJECTION_THRESHOLD", "0.7")
     monkeypatch.setenv("REBUFF_ENABLED", "false")
     monkeypatch.delenv("REBUFF_API_TOKEN", raising=False)
+    # Disable local ML to avoid model download during Day 1 tests.
+    monkeypatch.setenv("ML_PROMPT_INJECTION_ENABLED", "false")
     _reset_rebuff_client()
+    # Reset ML singleton so it picks up the disabled setting.
+    try:
+        from app.security.ml_prompt_injection import reset_ml_detector
+        reset_ml_detector()
+    except ImportError:
+        pass
     yield
     _reset_rebuff_client()
+    try:
+        from app.security.ml_prompt_injection import reset_ml_detector
+        reset_ml_detector()
+    except ImportError:
+        pass
 
 
 # =============================================================================

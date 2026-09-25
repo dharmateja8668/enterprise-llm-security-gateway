@@ -13,3 +13,13 @@ pytest
 respx
 sqlalchemy
 alembic
+
+# Week 3 Day 2: Local ML prompt injection detection
+torch>=2.0.0
+transformers>=4.39.0
+sentencepiece
+huggingface-hub>=1.5.0,<2.0
+safetensors>=0.8.0
+tokenizers>=0.23.1,<0.24.0
+networkx>=2.5.1
+sympy>=1.13.3

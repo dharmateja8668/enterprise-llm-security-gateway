@@ -1,16 +1,28 @@
 """
 app/security/prompt_injection.py
-Week 3 – Day 1: Prompt Injection Detection Layer.
+Week 3 – Day 1 + Day 2: Prompt Injection Detection Layer.
 
 Provides a reusable service for detecting prompt injection attacks in user
 prompts *before* they are forwarded to the downstream LLM.
 
 Detection pipeline
 ------------------
-1. **Normalize** — lowercase, collapse whitespace, strip invisible characters.
-2. **Heuristic** — rule-based regex scan against known injection patterns.
-3. **Rebuff (optional)** — remote ML-based scan via the Rebuff cloud API.
-4. **Combine** — merge results; the highest risk_score wins; threshold applied.
+1. **Normalize**  — lowercase, collapse whitespace, strip invisible characters.
+2. **Heuristic**  — rule-based regex scan against known injection patterns.
+3. **Local ML**   — local pretrained DeBERTa-v3 model (Day 2).
+4. **Rebuff**     — optional remote ML scan via the Rebuff cloud API (Day 1).
+5. **Combine**    — merge results using documented combination policy below.
+
+Combination policy (Day 2)
+--------------------------
+* If **heuristic** fires (score == 1.0)     → BLOCK immediately (short-circuit).
+* If **local ML** flags (score >= ML threshold) → BLOCK.
+* If **Rebuff** is enabled and flags           → BLOCK.
+* If neither flags                             → SAFE.
+* If ML is unavailable, only heuristic (+ optional Rebuff) decides.
+
+The combined risk_score reported is max(heuristic_score, ml_injection_score,
+rebuff_score). The detection_method field records which detector(s) fired.
 
 Public API
 ----------
@@ -23,8 +35,12 @@ PROMPT_INJECTION_ENABLED    — ``true`` / ``false`` (default: ``true``).
                               Set to ``false`` to bypass detection entirely
                               (dev / CI use only).
 PROMPT_INJECTION_THRESHOLD  — Float 0.0–1.0 (default: ``0.7``).
-                              Prompts whose risk_score meets or exceeds this
-                              value are classified as injections.
+                              Heuristic/Rebuff risk-score threshold.
+ML_PROMPT_INJECTION_ENABLED — ``true`` / ``false`` (default: ``true``).
+ML_PROMPT_INJECTION_MODEL   — HuggingFace model ID
+                              (default: protectai/deberta-v3-base-prompt-injection-v2).
+ML_PROMPT_INJECTION_THRESHOLD — Float 0.0–1.0 (default: ``0.5``).
+                              INJECTION score threshold for the ML detector.
 REBUFF_ENABLED              — ``true`` / ``false`` (default: ``false``).
                               Requires a valid REBUFF_API_TOKEN.
 REBUFF_API_TOKEN            — Secret token for the Rebuff cloud API.
@@ -35,6 +51,7 @@ Security notes
 --------------
 * An exception inside any detector **never** silently bypasses the security
   layer — failures are logged and the heuristic result is used as fallback.
+* If the ML model fails to load, heuristic + optional Rebuff still run.
 * Prompt text is intentionally **not** stored in logs to comply with the
   project's existing DLP design; only metadata (risk score, category, method)
   is recorded.
@@ -417,20 +434,25 @@ def check_prompt_injection(prompt: str) -> InjectionCheckResult:
 
     This is the **single public function** that the FastAPI route calls.
 
-    Detection flow
-    ~~~~~~~~~~~~~~
-    1. If ``PROMPT_INJECTION_ENABLED=false`` -> return SAFE immediately.
+    Detection flow (Day 1 + Day 2)
+    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    1. If ``PROMPT_INJECTION_ENABLED=false`` → return SAFE immediately.
     2. Normalise the prompt text.
     3. Run heuristic detection.
-    4. If Rebuff is enabled, run Rebuff ML detection.
-    5. Combine: the result with the **higher risk_score** is preferred.
-    6. Apply the configured threshold; set ``is_injection`` accordingly.
+       - Score == 1.0 → short-circuit BLOCK (skip further checks).
+    4. Run local ML detection (Day 2, optional).
+       - ML injection_score >= ML_PROMPT_INJECTION_THRESHOLD → BLOCK.
+    5. Run Rebuff ML (optional, Day 1).
+    6. Combine all results:
+       - If *any* detector flagged → BLOCK.
+       - Combined risk_score = max(all individual scores).
+       - detection_method records which detector(s) fired.
 
     Design invariant
     ~~~~~~~~~~~~~~~~
     This function **never raises**.  Any internal exception is caught, logged,
-    and a safe fallback result is returned.  The caller must not assume that a
-    clean return value means "no exception occurred".
+    and a fail-closed (BLOCK) result is returned so an unexpected bug cannot
+    open the security gate.  ML or Rebuff failures fall back to heuristic.
 
     Args:
         prompt: The raw (or anonymised) user prompt to evaluate.
@@ -454,49 +476,26 @@ def check_prompt_injection(prompt: str) -> InjectionCheckResult:
         # -- Step 1: Heuristic -----------------------------------------------
         heuristic_result = _check_heuristic(normalized)
 
-        # Short-circuit: if heuristic already detected injection with certainty
-        # (score == 1.0), skip the Rebuff call to save latency.
+        # Short-circuit: heuristic certainty avoids unnecessary ML/Rebuff calls.
         if heuristic_result.is_injection and heuristic_result.risk_score >= 1.0:
             logger.debug(
                 "Heuristic short-circuit: category=%s", heuristic_result.reason
             )
             return heuristic_result
 
-        # -- Step 2: Rebuff ML (optional) ------------------------------------
+        # -- Step 2: Local ML detection (Day 2) ------------------------------
+        ml_result = _check_local_ml(prompt)
+
+        # -- Step 3: Rebuff ML (optional, Day 1) -----------------------------
         rebuff_result = _check_rebuff(prompt)
 
-        # -- Step 3: Combine -------------------------------------------------
-        if rebuff_result is not None:
-            # Pick the result with the higher risk score.
-            if rebuff_result.risk_score >= heuristic_result.risk_score:
-                combined = InjectionCheckResult(
-                    is_injection=rebuff_result.risk_score >= threshold,
-                    risk_score=rebuff_result.risk_score,
-                    reason=rebuff_result.reason,
-                    detection_method=(
-                        "combined"
-                        if heuristic_result.risk_score > 0
-                        else "rebuff"
-                    ),
-                )
-            else:
-                # Heuristic scored higher but did not hit 1.0 — apply threshold.
-                combined = InjectionCheckResult(
-                    is_injection=heuristic_result.risk_score >= threshold,
-                    risk_score=heuristic_result.risk_score,
-                    reason=heuristic_result.reason,
-                    detection_method="heuristic",
-                )
-        else:
-            # Rebuff unavailable — apply threshold to heuristic score.
-            combined = InjectionCheckResult(
-                is_injection=heuristic_result.risk_score >= threshold,
-                risk_score=heuristic_result.risk_score,
-                reason=heuristic_result.reason,
-                detection_method=heuristic_result.detection_method,
-            )
-
-        return combined
+        # -- Step 4: Combine all results -------------------------------------
+        return _combine_results(
+            heuristic_result=heuristic_result,
+            ml_result=ml_result,
+            rebuff_result=rebuff_result,
+            heuristic_threshold=threshold,
+        )
 
     except Exception as exc:
         # Last-resort catch: log but do NOT bypass security.
@@ -513,3 +512,123 @@ def check_prompt_injection(prompt: str) -> InjectionCheckResult:
             reason="internal_error_fail_closed",
             detection_method="heuristic",
         )
+
+
+# ---------------------------------------------------------------------------
+# Local ML detector wrapper (Day 2)
+# ---------------------------------------------------------------------------
+
+def _check_local_ml(prompt: str) -> Optional[InjectionCheckResult]:
+    """Run the local ML detector and return a structured result.
+
+    Returns ``None`` when:
+    * ML is disabled or the model failed to load.
+    * Any runtime exception occurs.
+
+    Failure is isolated — the security layer continues with heuristic results.
+    """
+    try:
+        from app.security.ml_prompt_injection import get_ml_detector  # noqa: PLC0415
+        detector = get_ml_detector()
+        ml = detector.detect(prompt)
+        if ml is None:
+            return None
+
+        logger.debug(
+            "Local ML result: label=%s injection_score=%.4f "
+            "is_injection=%s inference_ms=%.1f",
+            ml.label,
+            ml.injection_score,
+            ml.is_injection,
+            ml.inference_time_ms,
+        )
+
+        return InjectionCheckResult(
+            is_injection=ml.is_injection,
+            risk_score=ml.injection_score,
+            reason="ml_injection_detected" if ml.is_injection else "safe",
+            detection_method="ml",
+        )
+    except Exception as exc:
+        logger.error(
+            "Local ML detector call failed: %s — "
+            "falling back to heuristic result for this request.",
+            exc,
+        )
+        return None
+
+
+# ---------------------------------------------------------------------------
+# Combination logic (Day 2)
+# ---------------------------------------------------------------------------
+
+def _combine_results(
+    heuristic_result: InjectionCheckResult,
+    ml_result: Optional[InjectionCheckResult],
+    rebuff_result: Optional[InjectionCheckResult],
+    heuristic_threshold: float,
+) -> InjectionCheckResult:
+    """Merge heuristic, ML, and Rebuff results into a single verdict.
+
+    Combination policy
+    ~~~~~~~~~~~~~~~~~~
+    * Collect all *active* (non-None) results.
+    * If ANY detector flagged as injection → BLOCK.
+    * Combined risk_score = max(all individual risk/injection scores).
+    * detection_method is set to the detector that produced the flag,
+      or 'combined' when multiple detectors flagged simultaneously.
+
+    This is a conservative OR policy: the gateway blocks if any single
+    detector is confident enough.  This trades potential false positives
+    for maximising security.
+    """
+    active_results: list[InjectionCheckResult] = [heuristic_result]
+    if ml_result is not None:
+        active_results.append(ml_result)
+    if rebuff_result is not None:
+        active_results.append(rebuff_result)
+
+    # Apply threshold to heuristic (scores < 1.0 need threshold check).
+    # The heuristic already returns True for exact matches (score=1.0).
+    # For partial heuristic scores apply the configured threshold.
+    adjusted_heuristic = InjectionCheckResult(
+        is_injection=heuristic_result.risk_score >= heuristic_threshold,
+        risk_score=heuristic_result.risk_score,
+        reason=heuristic_result.reason,
+        detection_method=heuristic_result.detection_method,
+    )
+    adjusted_active = [adjusted_heuristic]
+    if ml_result is not None:
+        adjusted_active.append(ml_result)
+    if rebuff_result is not None:
+        adjusted_active.append(rebuff_result)
+
+    # Collect flagging detectors.
+    flagging = [r for r in adjusted_active if r.is_injection]
+    max_score = max(r.risk_score for r in adjusted_active)
+
+    if not flagging:
+        # Nothing flagged — SAFE.
+        best = max(adjusted_active, key=lambda r: r.risk_score)
+        return InjectionCheckResult(
+            is_injection=False,
+            risk_score=max_score,
+            reason=best.reason,
+            detection_method=best.detection_method,
+        )
+
+    # At least one detector flagged.
+    if len(flagging) > 1:
+        method = "combined"
+        reason = "+".join(r.reason for r in flagging)
+    else:
+        method = flagging[0].detection_method
+        reason = flagging[0].reason
+
+    return InjectionCheckResult(
+        is_injection=True,
+        risk_score=round(max_score, 4),
+        reason=reason,
+        detection_method=method,
+    )
+
