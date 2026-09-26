@@ -207,8 +207,36 @@ async def chat_endpoint(
     if status == "error":
         raise HTTPException(status_code=status_code, detail=error_msg)
 
-    # ── (placeholder): Response Content Safety ──────────────────────────────
-    # response_text = safety_screen(response_text)   # ← future
+    # ── Week 3 Day 3: Response Content Safety ──────────────────────────────
+    if response_text is not None:
+        from app.security.content_safety import check_content_safety
+        safety_result = check_content_safety(response_text)
+        if not safety_result.safe:
+            logger.warning(f"Content safety blocked response: {safety_result.category}")
+            # Log blocked attempt to audit DB
+            try:
+                import uuid as _uuid, time as _time
+                _blocked_log = RequestLog(
+                    request_id=str(_uuid.uuid4()),
+                    user_token=_token_identifier(user_token),
+                    provider="ollama",
+                    model=_get_ollama().model,
+                    prompt="[REDACTED — request prompted unsafe response]",
+                    status="content_safety_blocked",
+                )
+                db.add(_blocked_log)
+                db.commit()
+            except Exception as _db_err:
+                logger.error("Failed to write content safety audit log: %s", _db_err)
+                db.rollback()
+            
+            raise HTTPException(
+                status_code=403,
+                detail={
+                    "error": "Response blocked by content safety policy",
+                    "category": safety_result.category
+                }
+            )
 
     # ── Week 2 Day 6: Deanonymization ───────────────────────────────────────
     if response_text is not None:
