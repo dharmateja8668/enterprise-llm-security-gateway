@@ -108,8 +108,9 @@ async def chat_endpoint(
 
     # ── Week 2 Day 1: PII Detection (detection & summary) ─────────────────
     try:
-        pii_entities = analyze_pii(request.prompt, score_threshold=0.0)
-        pii_summary_data = summarize_pii(pii_entities)
+        import asyncio
+        pii_entities = await asyncio.to_thread(analyze_pii, request.prompt, score_threshold=0.0)
+        pii_summary_data = await asyncio.to_thread(summarize_pii, pii_entities)
         pii_summary = PIISummary(**pii_summary_data)
 
         if pii_summary.pii_detected:
@@ -120,7 +121,7 @@ async def chat_endpoint(
             )
 
         # ── Week 2 Day 4–6: PII/PHI Anonymization via Presidio ──────────────
-        safe_prompt, pii_mapping = anonymize(request.prompt)
+        safe_prompt, pii_mapping = await asyncio.to_thread(anonymize, request.prompt)
     except HTTPException:
         raise
     except Exception as scan_err:
@@ -131,7 +132,7 @@ async def chat_endpoint(
         )
 
     # ── Week 3 Day 1: Prompt Injection Detection ─────────────────────────────
-    injection_result = check_prompt_injection(safe_prompt)
+    injection_result = await asyncio.to_thread(check_prompt_injection, safe_prompt)
     if injection_result.is_injection:
         logger.warning(
             "Prompt injection blocked: method=%s risk_score=%.3f reason=%s "
@@ -144,6 +145,7 @@ async def chat_endpoint(
         # Log blocked attempt to audit DB before raising.
         try:
             import uuid as _uuid, time as _time
+            import asyncio
             _blocked_id = str(_uuid.uuid4())
             _blocked_log = RequestLog(
                 request_id=_blocked_id,
@@ -154,7 +156,7 @@ async def chat_endpoint(
                 status="injection_blocked",
             )
             db.add(_blocked_log)
-            db.commit()
+            await asyncio.to_thread(db.commit)
         except Exception as _db_err:
             logger.error("Failed to write injection-blocked audit log: %s", _db_err)
             db.rollback()
@@ -199,7 +201,7 @@ async def chat_endpoint(
             status=status,
         )
         db.add(log_entry)
-        db.commit()
+        await asyncio.to_thread(db.commit)
     except Exception as db_err:
         logger.error(f"Failed to write audit log to database: {db_err}")
         db.rollback()
@@ -210,7 +212,8 @@ async def chat_endpoint(
     # ── Week 3 Day 3: Response Content Safety ──────────────────────────────
     if response_text is not None:
         from app.security.content_safety import check_content_safety
-        safety_result = check_content_safety(response_text)
+        import asyncio
+        safety_result = await asyncio.to_thread(check_content_safety, response_text)
         if not safety_result.safe:
             logger.warning(f"Content safety blocked response: {safety_result.category}")
             # Log blocked attempt to audit DB
@@ -225,7 +228,7 @@ async def chat_endpoint(
                     status="content_safety_blocked",
                 )
                 db.add(_blocked_log)
-                db.commit()
+                await asyncio.to_thread(db.commit)
             except Exception as _db_err:
                 logger.error("Failed to write content safety audit log: %s", _db_err)
                 db.rollback()
