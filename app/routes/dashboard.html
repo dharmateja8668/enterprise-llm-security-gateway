@@ -1,0 +1,381 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SOC Compliance Dashboard | AI Gateway</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        :root {
+            --primary: #6366f1;
+            --primary-light: #818cf8;
+            --bg-dark: #0f172a;
+            --bg-card: #1e293b;
+            --text-main: #f8fafc;
+            --text-muted: #94a3b8;
+            --success: #10b981;
+            --danger: #ef4444;
+            --warning: #f59e0b;
+            --border: #334155;
+        }
+
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+        }
+
+        body {
+            background-color: var(--bg-dark);
+            color: var(--text-main);
+            min-height: 100vh;
+        }
+
+        header {
+            background-color: var(--bg-card);
+            padding: 1.5rem 2rem;
+            border-bottom: 1px solid var(--border);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        header h1 {
+            font-size: 1.5rem;
+            font-weight: 600;
+            color: var(--primary-light);
+        }
+
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+            padding: 2rem;
+        }
+
+        /* Metric Cards */
+        .metrics-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 1.5rem;
+            margin-bottom: 2rem;
+        }
+
+        .metric-card {
+            background-color: var(--bg-card);
+            border-radius: 12px;
+            padding: 1.5rem;
+            border: 1px solid var(--border);
+            transition: transform 0.2s ease, box-shadow 0.2s ease;
+        }
+
+        .metric-card:hover {
+            transform: translateY(-5px);
+            box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.3);
+            border-color: var(--primary);
+        }
+
+        .metric-title {
+            font-size: 0.875rem;
+            color: var(--text-muted);
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            margin-bottom: 0.5rem;
+        }
+
+        .metric-value {
+            font-size: 2rem;
+            font-weight: 700;
+        }
+
+        .value-success { color: var(--success); }
+        .value-danger { color: var(--danger); }
+        .value-primary { color: var(--primary-light); }
+
+        /* Charts */
+        .charts-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(500px, 1fr));
+            gap: 1.5rem;
+            margin-bottom: 2rem;
+        }
+
+        .chart-card {
+            background-color: var(--bg-card);
+            border-radius: 12px;
+            padding: 1.5rem;
+            border: 1px solid var(--border);
+        }
+
+        .chart-title {
+            font-size: 1.125rem;
+            font-weight: 600;
+            margin-bottom: 1rem;
+        }
+
+        /* Table */
+        .table-card {
+            background-color: var(--bg-card);
+            border-radius: 12px;
+            padding: 1.5rem;
+            border: 1px solid var(--border);
+            overflow-x: auto;
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+        }
+
+        th {
+            text-align: left;
+            padding: 1rem;
+            color: var(--text-muted);
+            font-size: 0.875rem;
+            border-bottom: 1px solid var(--border);
+        }
+
+        td {
+            padding: 1rem;
+            border-bottom: 1px solid var(--border);
+            font-size: 0.875rem;
+        }
+
+        .status-badge {
+            padding: 0.25rem 0.75rem;
+            border-radius: 9999px;
+            font-size: 0.75rem;
+            font-weight: 600;
+            text-transform: capitalize;
+        }
+
+        .status-success {
+            background-color: rgba(16, 185, 129, 0.2);
+            color: var(--success);
+        }
+
+        .status-error {
+            background-color: rgba(239, 68, 68, 0.2);
+            color: var(--danger);
+        }
+        
+        .status-blocked {
+            background-color: rgba(245, 158, 11, 0.2);
+            color: var(--warning);
+        }
+        
+        .prompt-cell {
+            max-width: 300px;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            font-family: monospace;
+            color: var(--text-muted);
+        }
+
+        @media (max-width: 768px) {
+            .charts-grid {
+                grid-template-columns: 1fr;
+            }
+        }
+    </style>
+</head>
+<body>
+    <header>
+        <h1>SOC Compliance Dashboard</h1>
+        <div style="font-size: 0.875rem; color: var(--text-muted);">Enterprise AI Gateway</div>
+    </header>
+
+    <div class="container">
+        <!-- Metrics -->
+        <div class="metrics-grid">
+            <div class="metric-card">
+                <div class="metric-title">Total AI Requests</div>
+                <div class="metric-value" id="m-total-requests">-</div>
+            </div>
+            <div class="metric-card">
+                <div class="metric-title">Allowed Prompts</div>
+                <div class="metric-value value-success" id="m-allowed-prompts">-</div>
+            </div>
+            <div class="metric-card">
+                <div class="metric-title">Blocked Prompts</div>
+                <div class="metric-value value-danger" id="m-blocked-prompts">-</div>
+            </div>
+            <div class="metric-card">
+                <div class="metric-title">Security Events</div>
+                <div class="metric-value value-danger" id="m-security-events">-</div>
+            </div>
+            <div class="metric-card">
+                <div class="metric-title">Success Rate</div>
+                <div class="metric-value value-primary" id="m-success-rate">-</div>
+            </div>
+        </div>
+
+        <!-- Charts -->
+        <div class="charts-grid">
+            <div class="chart-card">
+                <div class="chart-title">Requests Over Time (Last 7 Days)</div>
+                <canvas id="usageChart"></canvas>
+            </div>
+            <div class="chart-card">
+                <div class="chart-title">Blocked vs Allowed</div>
+                <canvas id="ratioChart"></canvas>
+            </div>
+        </div>
+
+        <!-- Recent Activity Table -->
+        <div class="table-card">
+            <div class="chart-title">Recent Activity Logs</div>
+            <table>
+                <thead>
+                    <tr>
+                        <th>Timestamp</th>
+                        <th>User / App ID</th>
+                        <th>Model</th>
+                        <th>Status</th>
+                        <th>Prompt Snippet</th>
+                    </tr>
+                </thead>
+                <tbody id="activity-table-body">
+                    <!-- Populated by JS -->
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+    <script>
+        async function fetchMetrics() {
+            try {
+                const res = await fetch('/dashboard/metrics');
+                const data = await res.json();
+                
+                document.getElementById('m-total-requests').innerText = data.total_requests;
+                document.getElementById('m-allowed-prompts').innerText = data.total_allowed_prompts;
+                document.getElementById('m-blocked-prompts').innerText = data.total_blocked_prompts;
+                document.getElementById('m-security-events').innerText = data.total_security_events;
+                
+                const successRate = data.total_requests > 0 
+                    ? Math.round((data.request_success_count / data.total_requests) * 100) 
+                    : 0;
+                document.getElementById('m-success-rate').innerText = successRate + '%';
+                
+                // Initialize Ratio Chart
+                const ctxRatio = document.getElementById('ratioChart').getContext('2d');
+                new Chart(ctxRatio, {
+                    type: 'doughnut',
+                    data: {
+                        labels: ['Allowed', 'Blocked', 'Errors'],
+                        datasets: [{
+                            data: [data.total_allowed_prompts, data.total_blocked_prompts, data.request_failure_count],
+                            backgroundColor: ['#10b981', '#f59e0b', '#ef4444'],
+                            borderWidth: 0
+                        }]
+                    },
+                    options: {
+                        responsive: true,
+                        plugins: {
+                            legend: { position: 'bottom', labels: { color: '#94a3b8' } }
+                        }
+                    }
+                });
+
+            } catch (error) {
+                console.error("Failed to load metrics", error);
+            }
+        }
+
+        async function fetchUsage() {
+            try {
+                const res = await fetch('/dashboard/usage');
+                const data = await res.json();
+
+                const ctx = document.getElementById('usageChart').getContext('2d');
+                new Chart(ctx, {
+                    type: 'line',
+                    data: {
+                        labels: data.labels,
+                        datasets: [
+                            {
+                                label: 'Total Requests',
+                                data: data.requests_over_time,
+                                borderColor: '#818cf8',
+                                backgroundColor: 'rgba(129, 140, 248, 0.1)',
+                                fill: true,
+                                tension: 0.4
+                            },
+                            {
+                                label: 'Blocked Requests',
+                                data: data.blocked_over_time,
+                                borderColor: '#ef4444',
+                                backgroundColor: 'transparent',
+                                borderDash: [5, 5],
+                                tension: 0.4
+                            }
+                        ]
+                    },
+                    options: {
+                        responsive: true,
+                        scales: {
+                            y: { beginAtZero: true, grid: { color: '#334155' }, ticks: { color: '#94a3b8' } },
+                            x: { grid: { color: '#334155' }, ticks: { color: '#94a3b8' } }
+                        },
+                        plugins: {
+                            legend: { labels: { color: '#94a3b8' } }
+                        }
+                    }
+                });
+            } catch (error) {
+                console.error("Failed to load usage data", error);
+            }
+        }
+
+        async function fetchRecentEvents() {
+            try {
+                const res = await fetch('/dashboard/recent-events');
+                const data = await res.json();
+                
+                const tbody = document.getElementById('activity-table-body');
+                tbody.innerHTML = '';
+                
+                data.forEach(event => {
+                    const tr = document.createElement('tr');
+                    
+                    const date = new Date(event.timestamp).toLocaleString();
+                    
+                    let statusClass = 'status-success';
+                    let statusText = event.status;
+                    
+                    if (event.blocked || event.status.includes('blocked')) {
+                        statusClass = 'status-blocked';
+                    } else if (event.status === 'error') {
+                        statusClass = 'status-error';
+                    }
+
+                    tr.innerHTML = `
+                        <td>${date}</td>
+                        <td><span style="font-family: monospace;">${event.user}</span></td>
+                        <td>${event.model}</td>
+                        <td><span class="status-badge ${statusClass}">${statusText.replace('_', ' ')}</span></td>
+                        <td class="prompt-cell" title="${event.prompt}">${event.prompt}</td>
+                    `;
+                    tbody.appendChild(tr);
+                });
+            } catch (error) {
+                console.error("Failed to load recent events", error);
+            }
+        }
+
+        // Initialize dashboard
+        fetchMetrics();
+        fetchUsage();
+        fetchRecentEvents();
+        
+        // Refresh every 30 seconds
+        setInterval(() => {
+            fetchMetrics();
+            fetchUsage();
+            fetchRecentEvents();
+        }, 30000);
+    </script>
+</body>
+</html>

@@ -11,6 +11,7 @@ from app.models import audit
 from app.routes.chat import router as chat_router
 from app.routes.basic_chat import router as basic_chat_router
 from app.routes.pii import router as pii_router
+from app.routes.dashboard import router as dashboard_router
 from app.providers.ollama import OllamaProvider
 
 app = FastAPI(
@@ -56,3 +57,4 @@ async def ollama_health():
 app.include_router(basic_chat_router)  # POST /chat  (authenticated gateway)
 app.include_router(chat_router)        # POST /v1/chat/completions (provider-routed)
 app.include_router(pii_router)         # POST /pii/scan (PII detection — Week 2)
+app.include_router(dashboard_router)   # GET /dashboard (SOC Compliance Dashboard)
