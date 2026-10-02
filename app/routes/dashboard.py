@@ -135,15 +135,14 @@ def get_security_events(db: Session = Depends(get_db), time_range: str = Query("
             event_name = "Successful Request"
             severity = "Low"
             
-        if log.status != "success": # Filter to only show security relevant or all? I will show all for now since it asks for "recent security events in a table... Status"
-            events.append({
-                "timestamp": log.timestamp.isoformat() + "Z",
-                "user": log.user_token if log.user_token else "Unknown",
-                "model": log.model if log.model else "Unknown",
-                "event": event_name,
-                "status": "Blocked" if log.status in ["injection_blocked", "content_safety_blocked"] else ("Error" if log.status == "error" else "Allowed"),
-                "severity": severity,
-            })
+        events.append({
+            "timestamp": log.timestamp.isoformat() + "Z",
+            "user": log.user_token if log.user_token else "Unknown",
+            "model": log.model if log.model else "Unknown",
+            "event": event_name,
+            "status": "Blocked" if log.status in ["injection_blocked", "content_safety_blocked"] else ("Error" if log.status == "error" else "Allowed"),
+            "severity": severity,
+        })
             
     return events
 

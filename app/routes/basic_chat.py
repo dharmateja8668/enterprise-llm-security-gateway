@@ -66,6 +66,7 @@ def _token_identifier(token: str) -> str:
 
 class SimpleChatRequest(BaseModel):
     prompt: str
+    user_id: Optional[str] = None
 
 
 class PIISummary(BaseModel):
@@ -95,6 +96,9 @@ async def chat_endpoint(
       → PII Detection (Week 2) → Ollama (Day 6) → User
     """
     ollama = _get_ollama()
+    
+    # Extract the user from the request or fallback to hashed token
+    actual_user = request.user_id if request.user_id else _token_identifier(user_token)
     
     # ── Day 4: Authentication (enforced by Depends above) ──────────────────
     # verify_api_key() already ran; user_token holds the validated token.
@@ -149,7 +153,7 @@ async def chat_endpoint(
             _blocked_id = str(_uuid.uuid4())
             _blocked_log = RequestLog(
                 request_id=_blocked_id,
-                user_token=_token_identifier(user_token),
+                user_token=actual_user,
                 provider="ollama",
                 model=_get_ollama().model,
                 prompt="[REDACTED — injection blocked]",
@@ -194,7 +198,7 @@ async def chat_endpoint(
     try:
         log_entry = RequestLog(
             request_id=req_id,
-            user_token=_token_identifier(user_token),
+            user_token=actual_user,
             provider="ollama",
             model=ollama.model,
             prompt=safe_prompt,
@@ -221,7 +225,7 @@ async def chat_endpoint(
                 import uuid as _uuid, time as _time
                 _blocked_log = RequestLog(
                     request_id=str(_uuid.uuid4()),
-                    user_token=_token_identifier(user_token),
+                    user_token=actual_user,
                     provider="ollama",
                     model=_get_ollama().model,
                     prompt="[REDACTED — request prompted unsafe response]",
