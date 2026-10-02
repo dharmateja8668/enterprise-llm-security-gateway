@@ -38,6 +38,7 @@ def get_metrics(db: Session = Depends(get_db), time_range: str = Query("7d")):
     
     blocked_req = req_query.filter(RequestLog.status.in_(["injection_blocked", "content_safety_blocked"])).count()
     allowed_req = req_query.filter(RequestLog.status == "success").count()
+    error_req = req_query.filter(RequestLog.status == "error").count()
     
     # Active users count
     active_users = req_query.filter(RequestLog.user_token.isnot(None)).distinct(RequestLog.user_token).count()
@@ -60,6 +61,7 @@ def get_metrics(db: Session = Depends(get_db), time_range: str = Query("7d")):
         "blocked_prompts_change": calc_change(blocked_req, prev_blocked),
         "allowed_requests": allowed_req,
         "allowed_requests_change": calc_change(allowed_req, prev_allowed),
+        "error_requests": error_req,
         "security_events": blocked_req, # Using blocked as security events proxy
         "active_users": active_users
     }
@@ -188,8 +190,8 @@ def get_model_usage(db: Session = Depends(get_db), time_range: str = Query("7d")
         
     return sorted(models, key=lambda x: x["count"], reverse=True)
 
-@router.get("/", response_class=HTMLResponse)
-def get_dashboard_html():
+@router.get("/{full_path:path}", response_class=HTMLResponse)
+def get_dashboard_html(full_path: str = ""):
     with open("app/routes/dashboard.html", "r", encoding="utf-8") as f:
         html_content = f.read()
     return HTMLResponse(content=html_content)

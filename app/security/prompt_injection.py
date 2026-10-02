@@ -168,7 +168,7 @@ _HEURISTIC_PATTERNS: List[Tuple[str, re.Pattern]] = [
     (
         "override_instructions",
         re.compile(
-            r"ignore\s+(all\s+)?(previous|prior|earlier|above|your)\s+"
+            r"ignore\s+(all\s+)?(my\s+)?(previous|prior|earlier|above|your)\s+"
             r"(instructions?|prompts?|directives?|constraints?|rules?|guidelines?)",
             re.IGNORECASE,
         ),

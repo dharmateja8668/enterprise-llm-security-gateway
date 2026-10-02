@@ -26,6 +26,16 @@ app = FastAPI(
     version="1.0.0",
 )
 
+from fastapi.middleware.cors import CORSMiddleware
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=['*'],
+    allow_credentials=True,
+    allow_methods=['*'],
+    allow_headers=['*'],
+)
+
 # Create database tables if they don't exist
 Base.metadata.create_all(bind=engine)
 
@@ -58,3 +68,8 @@ app.include_router(basic_chat_router)  # POST /chat  (authenticated gateway)
 app.include_router(chat_router)        # POST /v1/chat/completions (provider-routed)
 app.include_router(pii_router)         # POST /pii/scan (PII detection — Week 2)
 app.include_router(dashboard_router)   # GET /dashboard (SOC Compliance Dashboard)
+
+if __name__ == "__main__":
+    import uvicorn
+    uvicorn.run("app.main:app", host="127.0.0.1", port=8081, reload=True)
+

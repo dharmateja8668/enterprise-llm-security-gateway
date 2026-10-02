@@ -136,7 +136,8 @@ async def chat_endpoint(
         )
 
     # ── Week 3 Day 1: Prompt Injection Detection ─────────────────────────────
-    injection_result = await asyncio.to_thread(check_prompt_injection, safe_prompt)
+    # Run injection detection on the RAW prompt to avoid false positives caused by PII redaction tags (like <PHONE_NUMBER>)
+    injection_result = await asyncio.to_thread(check_prompt_injection, request.prompt)
     if injection_result.is_injection:
         logger.warning(
             "Prompt injection blocked: method=%s risk_score=%.3f reason=%s "
@@ -160,7 +161,7 @@ async def chat_endpoint(
                 status="injection_blocked",
             )
             db.add(_blocked_log)
-            await asyncio.to_thread(db.commit)
+            db.commit()
         except Exception as _db_err:
             logger.error("Failed to write injection-blocked audit log: %s", _db_err)
             db.rollback()
@@ -205,7 +206,7 @@ async def chat_endpoint(
             status=status,
         )
         db.add(log_entry)
-        await asyncio.to_thread(db.commit)
+        db.commit()
     except Exception as db_err:
         logger.error(f"Failed to write audit log to database: {db_err}")
         db.rollback()
@@ -232,7 +233,7 @@ async def chat_endpoint(
                     status="content_safety_blocked",
                 )
                 db.add(_blocked_log)
-                await asyncio.to_thread(db.commit)
+                db.commit()
             except Exception as _db_err:
                 logger.error("Failed to write content safety audit log: %s", _db_err)
                 db.rollback()
