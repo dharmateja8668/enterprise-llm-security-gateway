@@ -110,6 +110,41 @@ async def chat_endpoint(
     if not request.prompt or not request.prompt.strip():
         raise HTTPException(status_code=400, detail="Prompt cannot be empty")
 
+    # ── Week 4: RBAC Policy Verification ─────────────────────────────────────
+    from app.security.rbac import check_rbac_access
+    target_model = ollama.model
+    if not check_rbac_access(db, actual_user, target_model):
+        logger.warning(
+            "RBAC access denied for user=%s model=%s prompt=%s",
+            actual_user,
+            target_model,
+            request.prompt[:30],
+        )
+        try:
+            import uuid as _uuid
+            _blocked_log = RequestLog(
+                request_id=str(_uuid.uuid4()),
+                user_token=actual_user,
+                provider="ollama",
+                model=target_model,
+                prompt="[REDACTED — RBAC blocked]",
+                status="rbac_blocked",
+            )
+            db.add(_blocked_log)
+            db.commit()
+        except Exception as _db_err:
+            logger.error("Failed to write RBAC audit log: %s", _db_err)
+            db.rollback()
+
+        raise HTTPException(
+            status_code=403,
+            detail={
+                "error": "AI model access denied",
+                "blocked": True,
+                "reason": "rbac_model_access_denied",
+            },
+        )
+
     # ── Week 2 Day 1: PII Detection (detection & summary) ─────────────────
     try:
         import asyncio

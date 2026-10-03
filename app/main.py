@@ -6,13 +6,15 @@ from dotenv import load_dotenv
 load_dotenv()  # must happen before any module that reads os.getenv()
 
 from fastapi import FastAPI
-from app.db import engine, Base
+from app.db import engine, Base, SessionLocal
 from app.models import audit
 from app.routes.chat import router as chat_router
 from app.routes.basic_chat import router as basic_chat_router
 from app.routes.pii import router as pii_router
+from app.routes.rbac import router as rbac_router
 from app.routes.dashboard import router as dashboard_router
 from app.providers.ollama import OllamaProvider
+from app.security.rbac import init_default_rbac_policies
 
 app = FastAPI(
     title="Enterprise LLM Security Gateway",
@@ -38,6 +40,14 @@ app.add_middleware(
 
 # Create database tables if they don't exist
 Base.metadata.create_all(bind=engine)
+
+@app.on_event("startup")
+def startup_event():
+    db = SessionLocal()
+    try:
+        init_default_rbac_policies(db)
+    finally:
+        db.close()
 
 @app.get("/", tags=["Health"])
 async def root():
@@ -67,9 +77,9 @@ async def ollama_health():
 app.include_router(basic_chat_router)  # POST /chat  (authenticated gateway)
 app.include_router(chat_router)        # POST /v1/chat/completions (provider-routed)
 app.include_router(pii_router)         # POST /pii/scan (PII detection — Week 2)
+app.include_router(rbac_router)        # RBAC policy management
 app.include_router(dashboard_router)   # GET /dashboard (SOC Compliance Dashboard)
 
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run("app.main:app", host="127.0.0.1", port=8081, reload=True)
-

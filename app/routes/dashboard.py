@@ -9,6 +9,8 @@ from datetime import datetime, timedelta
 
 router = APIRouter(prefix="/dashboard", tags=["Dashboard"])
 
+BLOCKED_STATUSES = ["injection_blocked", "content_safety_blocked", "rbac_blocked"]
+
 def get_time_filter(time_range: str):
     now = datetime.utcnow()
     if time_range == "24h":
@@ -36,7 +38,7 @@ def get_metrics(db: Session = Depends(get_db), time_range: str = Query("7d")):
     req_query = db.query(RequestLog).filter(RequestLog.timestamp >= cutoff)
     total_req = req_query.count()
     
-    blocked_req = req_query.filter(RequestLog.status.in_(["injection_blocked", "content_safety_blocked"])).count()
+    blocked_req = req_query.filter(RequestLog.status.in_(BLOCKED_STATUSES)).count()
     allowed_req = req_query.filter(RequestLog.status == "success").count()
     error_req = req_query.filter(RequestLog.status == "error").count()
     
@@ -46,7 +48,7 @@ def get_metrics(db: Session = Depends(get_db), time_range: str = Query("7d")):
     # Previous period
     prev_req_query = db.query(RequestLog).filter(RequestLog.timestamp >= prev_cutoff_start, RequestLog.timestamp < prev_cutoff_end)
     prev_total = prev_req_query.count()
-    prev_blocked = prev_req_query.filter(RequestLog.status.in_(["injection_blocked", "content_safety_blocked"])).count()
+    prev_blocked = prev_req_query.filter(RequestLog.status.in_(BLOCKED_STATUSES)).count()
     prev_allowed = prev_req_query.filter(RequestLog.status == "success").count()
     
     def calc_change(current, previous):
@@ -84,7 +86,7 @@ def get_usage(db: Session = Depends(get_db), time_range: str = Query("7d")):
             key = log.timestamp.strftime("%Y-%m-%d %H:00")
             if key in usage_data:
                 usage_data[key]["requests"] += 1
-                if log.status in ["injection_blocked", "content_safety_blocked"]:
+                if log.status in BLOCKED_STATUSES:
                     usage_data[key]["blocked"] += 1
                 elif log.status == "success":
                     usage_data[key]["allowed"] += 1
@@ -98,7 +100,7 @@ def get_usage(db: Session = Depends(get_db), time_range: str = Query("7d")):
             key = log.timestamp.strftime("%Y-%m-%d")
             if key in usage_data:
                 usage_data[key]["requests"] += 1
-                if log.status in ["injection_blocked", "content_safety_blocked"]:
+                if log.status in BLOCKED_STATUSES:
                     usage_data[key]["blocked"] += 1
                 elif log.status == "success":
                     usage_data[key]["allowed"] += 1
@@ -119,7 +121,6 @@ def get_usage(db: Session = Depends(get_db), time_range: str = Query("7d")):
 def get_security_events(db: Session = Depends(get_db), time_range: str = Query("7d")):
     cutoff = get_time_filter(time_range)
     
-    # Get all logs to show a mix, or just blocked. Prompt asks for a mix including "Request Blocked" and others.
     logs = db.query(RequestLog).filter(RequestLog.timestamp >= cutoff).order_by(RequestLog.timestamp.desc()).limit(20).all()
     events = []
     for log in logs:
@@ -129,6 +130,9 @@ def get_security_events(db: Session = Depends(get_db), time_range: str = Query("
             severity = "Critical"
         elif log.status == "content_safety_blocked":
             event_name = "Unsafe Content Blocked"
+            severity = "High"
+        elif log.status == "rbac_blocked":
+            event_name = "AI Model Access Denied (RBAC)"
             severity = "High"
         elif log.status == "error":
             event_name = "API Error"
@@ -142,7 +146,7 @@ def get_security_events(db: Session = Depends(get_db), time_range: str = Query("
             "user": log.user_token if log.user_token else "Unknown",
             "model": log.model if log.model else "Unknown",
             "event": event_name,
-            "status": "Blocked" if log.status in ["injection_blocked", "content_safety_blocked"] else ("Error" if log.status == "error" else "Allowed"),
+            "status": "Blocked" if log.status in BLOCKED_STATUSES else ("Error" if log.status == "error" else "Allowed"),
             "severity": severity,
         })
             
@@ -161,10 +165,15 @@ def get_blocked_prompts(db: Session = Depends(get_db), time_range: str = Query("
         RequestLog.timestamp >= cutoff, 
         RequestLog.status == "content_safety_blocked"
     ).count()
+
+    rbac = db.query(RequestLog).filter(
+        RequestLog.timestamp >= cutoff, 
+        RequestLog.status == "rbac_blocked"
+    ).count()
     
     return {
-        "categories": ["Prompt Injection", "Unsafe Content"],
-        "counts": [injection, content_safety]
+        "categories": ["Prompt Injection", "Unsafe Content", "RBAC Blocked"],
+        "counts": [injection, content_safety, rbac]
     }
 
 @router.get("/model-usage")

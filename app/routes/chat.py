@@ -18,6 +18,21 @@ async def create_chat_completion(request: ChatRequest, db: Session = Depends(get
     if not request_id:
         import uuid
         request_id = str(uuid.uuid4())
+    
+    user_id = getattr(request, "user_id", None)
+    if user_id:
+        from app.security.rbac import check_rbac_access
+        from fastapi import HTTPException
+        if not check_rbac_access(db, user_id, request.model):
+            raise HTTPException(
+                status_code=403,
+                detail={
+                    "error": "AI model access denied",
+                    "blocked": True,
+                    "reason": "rbac_model_access_denied",
+                },
+            )
+
     provider = ProviderFactory.get_provider(request.provider)
     try:
         response = await provider.chat_completions(request)

@@ -17,7 +17,7 @@ _project_root = Path(__file__).resolve().parent.parent
 load_dotenv(dotenv_path=_project_root / ".env")
 
 from app.db import Base  # noqa: E402
-from app.models import User, APILog, SecurityLog, AuditLog, RequestLog  # noqa: E402
+from app.models import User, APILog, SecurityLog, AuditLog, RequestLog, RBACPolicy  # noqa: E402
 
 target_metadata = Base.metadata
 

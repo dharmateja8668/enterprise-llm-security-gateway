@@ -11,6 +11,8 @@ class User(Base):
     password_hash = Column(Text, nullable=False)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     is_active = Column(Boolean, default=True)
+    department = Column(String(100), nullable=True)
+    role = Column(String(50), nullable=True, default="employee")
 
     # relationships
     api_logs = relationship("APILog", back_populates="user", cascade="all, delete-orphan")
