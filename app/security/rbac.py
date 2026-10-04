@@ -87,13 +87,56 @@ def check_rbac_access(
 
 
 def init_default_rbac_policies(db: Session):
-    """Seed default RBAC policies if the table is empty."""
+    """Seed default RBAC policies and test accounts if empty."""
     configured_model = os.getenv("OLLAMA_MODEL", "llama3.2:3b")
     default_models = set([configured_model, "llama3.2:3b", "tinyllama"])
 
-    existing_count = db.query(RBACPolicy).count()
-    if existing_count == 0:
+    # 1. Seed Policies
+    existing_policy_count = db.query(RBACPolicy).count()
+    if existing_policy_count == 0:
         for model in default_models:
             db.add(RBACPolicy(department="Engineering", role="employee", allowed_model=model))
             db.add(RBACPolicy(department="Cybersecurity", role="employee", allowed_model=model))
+            db.add(RBACPolicy(department="Security", role="employee", allowed_model=model))
+            db.add(RBACPolicy(department="Security", role="security_analyst", allowed_model=model))
+            db.add(RBACPolicy(department="HR", role="employee", allowed_model="tinyllama"))
         db.commit()
+
+    # 2. Seed Default Accounts with @zaalima.in organizational domain
+    import hashlib
+    def h(p: str) -> str:
+        return hashlib.sha256(p.encode("utf-8")).hexdigest()
+
+    default_users_data = [
+        ("employee_user", "employee@zaalima.in", "Employee@123", "Engineering", "employee"),
+        ("finance_user", "finance@zaalima.in", "Finance@123", "Finance", "employee"),
+        ("analyst_user", "analyst@zaalima.in", "Analyst@123", "Security", "security_analyst"),
+        ("admin_user", "admin@zaalima.in", "Admin@123", "Security", "admin"),
+    ]
+
+    # Migrate any legacy non-zaalima.in accounts to @zaalima.in domain
+    existing_users = db.query(User).all()
+    for u in existing_users:
+        if u.email and not u.email.strip().lower().endswith("@zaalima.in"):
+            local_part = u.email.split("@")[0] if "@" in u.email else u.username
+            u.email = f"{local_part}@zaalima.in"
+
+    for uname, email, plain_pass, dept, role in default_users_data:
+        u = db.query(User).filter((User.username == uname) | (User.email == email)).first()
+        if not u:
+            db.add(User(
+                username=uname,
+                email=email,
+                password_hash=h(plain_pass),
+                department=dept,
+                role=role,
+                is_active=True,
+            ))
+        else:
+            u.email = email
+            u.password_hash = h(plain_pass)
+            u.department = dept
+            u.role = role
+            u.is_active = True
+    db.commit()
+

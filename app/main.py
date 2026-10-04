@@ -74,11 +74,16 @@ async def ollama_health():
     provider = OllamaProvider()
     return await provider.health_check()
 
-app.include_router(basic_chat_router)  # POST /chat  (authenticated gateway)
-app.include_router(chat_router)        # POST /v1/chat/completions (provider-routed)
-app.include_router(pii_router)         # POST /pii/scan (PII detection — Week 2)
-app.include_router(rbac_router)        # RBAC policy management
-app.include_router(dashboard_router)   # GET /dashboard (SOC Compliance Dashboard)
+from app.routes.auth import router as auth_router
+from app.routes.chat_sessions import router as chat_sessions_router
+
+app.include_router(auth_router)          # POST /auth/login, POST /auth/logout, GET /auth/me
+app.include_router(chat_sessions_router) # GET /chats, GET /chats/{id}, POST /chats, DELETE /chats/{id}
+app.include_router(basic_chat_router)     # POST /chat  (authenticated gateway)
+app.include_router(chat_router)           # POST /v1/chat/completions (provider-routed)
+app.include_router(pii_router)            # POST /pii/scan (PII detection — Week 2)
+app.include_router(rbac_router)           # RBAC policy management
+app.include_router(dashboard_router)      # GET /dashboard (SOC Compliance Dashboard)
 
 if __name__ == "__main__":
     import uvicorn

@@ -67,6 +67,7 @@ def _token_identifier(token: str) -> str:
 class SimpleChatRequest(BaseModel):
     prompt: str
     user_id: Optional[str] = None
+    chat_id: Optional[str] = None
 
 
 class PIISummary(BaseModel):
@@ -80,6 +81,7 @@ class SimpleChatResponse(BaseModel):
     success: bool
     response: str
     model: str
+    chat_id: Optional[str] = None
     pii_summary: Optional[PIISummary] = None
 
 
@@ -109,6 +111,44 @@ async def chat_endpoint(
     # ── Day 6a: Input validation ────────────────────────────────────────────
     if not request.prompt or not request.prompt.strip():
         raise HTTPException(status_code=400, detail="Prompt cannot be empty")
+
+    # ── Chat Thread Ownership Verification & Persistence ───────────────────
+    from app.models.chat_session import ChatThread, ChatMessageRecord
+    import json
+
+    thread = None
+    if request.chat_id:
+        thread = db.query(ChatThread).filter(ChatThread.id == request.chat_id).first()
+        if thread and thread.user_id != actual_user:
+            logger.warning("User %s attempted to send prompt to thread owned by %s", actual_user, thread.user_id)
+            raise HTTPException(
+                status_code=403,
+                detail={
+                    "error": "Access Denied: You do not own this chat thread",
+                    "blocked": True,
+                    "reason": "chat_owner_mismatch"
+                }
+            )
+
+    if not thread:
+        thread = ChatThread(
+            id=request.chat_id if request.chat_id else None,
+            user_id=actual_user,
+            title=request.prompt[:32] + ("..." if len(request.prompt) > 32 else "")
+        )
+        db.add(thread)
+        db.commit()
+        db.refresh(thread)
+
+    # Save User prompt message record
+    user_msg_rec = ChatMessageRecord(
+        chat_id=thread.id,
+        user_id=actual_user,
+        role="user",
+        content=request.prompt
+    )
+    db.add(user_msg_rec)
+    db.commit()
 
     # ── Week 4: RBAC Policy Verification ─────────────────────────────────────
     from app.security.rbac import check_rbac_access
@@ -287,9 +327,23 @@ async def chat_endpoint(
     else:
         final_response = None
 
+    if final_response is not None:
+        pii_json = json.dumps(pii_summary_data) if pii_summary_data else None
+        ai_msg_rec = ChatMessageRecord(
+            chat_id=thread.id,
+            user_id=actual_user,
+            role="assistant",
+            content=final_response,
+            model=ollama.model,
+            pii_summary_json=pii_json
+        )
+        db.add(ai_msg_rec)
+        db.commit()
+
     return SimpleChatResponse(
         success=True,
         response=final_response,
         model=ollama.model,
+        chat_id=thread.id,
         pii_summary=pii_summary,
     )

@@ -4,3 +4,4 @@ from .security_log import SecurityLog
 from .audit import AuditLog
 from .log import RequestLog
 from .rbac import RBACPolicy
+from .chat_session import ChatThread, ChatMessageRecord

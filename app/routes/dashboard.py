@@ -1,13 +1,65 @@
-from fastapi import APIRouter, Depends, Query
+from typing import Optional
+from fastapi import APIRouter, Depends, Query, Header, HTTPException, status
 from sqlalchemy.orm import Session
 from sqlalchemy import func, desc
 from app.db import get_db
 from app.models.log import RequestLog
 from app.models.audit import AuditLog
+from app.models.user import User
+from app.models.rbac import RBACPolicy
 from fastapi.responses import HTMLResponse
 from datetime import datetime, timedelta
 
-router = APIRouter(prefix="/dashboard", tags=["Dashboard"])
+def verify_dashboard_admin_access(
+    user_id: Optional[str] = Query(None),
+    x_user_id: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
+    db: Session = Depends(get_db)
+):
+    """
+    Backend RBAC check for SOC Dashboard access.
+    Non-admin users (e.g. employee role) are rejected with 403 Forbidden.
+    """
+    identifier = user_id or x_user_id
+    if not identifier and authorization and authorization.lower().startswith("bearer "):
+        identifier = authorization.split()[1]
+
+    if identifier:
+        user = None
+        if str(identifier).isdigit():
+            user = db.query(User).filter(User.id == int(identifier)).first()
+        if not user:
+            user = db.query(User).filter(User.username == identifier).first()
+        if not user:
+            user = db.query(User).filter(User.email == identifier).first()
+
+        if user:
+            role = (user.role or "employee").lower()
+            if role not in ["admin", "administrator"]:
+                try:
+                    import uuid
+                    db.add(RequestLog(
+                        request_id=str(uuid.uuid4()),
+                        user_token=user.username,
+                        provider="dashboard_auth",
+                        model="none",
+                        prompt="[UNAUTHORIZED_DASHBOARD_ACCESS]",
+                        status="rbac_blocked"
+                    ))
+                    db.commit()
+                except Exception:
+                    db.rollback()
+
+                raise HTTPException(
+                    status_code=status.HTTP_403_FORBIDDEN,
+                    detail={
+                        "error": "Access Denied: SOC Dashboard is restricted to Administrators only",
+                        "blocked": True,
+                        "reason": "dashboard_admin_access_required"
+                    }
+                )
+
+router = APIRouter(prefix="/dashboard", tags=["Dashboard"], dependencies=[Depends(verify_dashboard_admin_access)])
 
 BLOCKED_STATUSES = ["injection_blocked", "content_safety_blocked", "rbac_blocked"]
 
@@ -198,6 +250,80 @@ def get_model_usage(db: Session = Depends(get_db), time_range: str = Query("7d")
         })
         
     return sorted(models, key=lambda x: x["count"], reverse=True)
+
+@router.get("/users-data")
+def get_users_data(db: Session = Depends(get_db)):
+    users = db.query(User).order_by(User.id.asc()).all()
+    policies = db.query(RBACPolicy).all()
+
+    dept_models_map = {}
+    for p in policies:
+        dept = p.department
+        if dept not in dept_models_map:
+            dept_models_map[dept] = set()
+        if p.allowed_model:
+            dept_models_map[dept].add(p.allowed_model)
+
+    user_list = []
+    departments_set = set()
+    admin_count = 0
+    active_count = 0
+
+    for u in users:
+        role = (u.role or "employee").strip()
+        dept = (u.department or "General").strip()
+        departments_set.add(dept)
+
+        if role.lower() in ["admin", "administrator"]:
+            admin_count += 1
+            allowed_models = ["* (All Models)", "llama3.2:3b"]
+        else:
+            user_models = set()
+            for p in policies:
+                dept_match = p.department.lower() in ["*", "any"] or p.department.lower() == dept.lower()
+                role_match = p.role.lower() in ["*", "any"] or p.role.lower() == role.lower()
+                if dept_match and role_match:
+                    user_models.add(p.allowed_model)
+            allowed_models = sorted(list(user_models)) if user_models else ["llama3.2:3b"]
+
+        is_active = bool(u.is_active)
+        if is_active:
+            active_count += 1
+
+        user_list.append({
+            "id": u.id,
+            "username": u.username,
+            "email": u.email,
+            "role": role.upper(),
+            "department": dept,
+            "status": "Active" if is_active else "Inactive",
+            "allowed_models": allowed_models,
+            "created_at": u.created_at.isoformat() if u.created_at else None
+        })
+
+    rbac_mappings = []
+    for dept, models in dept_models_map.items():
+        rbac_mappings.append({
+            "department": dept,
+            "models": sorted(list(models))
+        })
+
+    if not any(r["department"].lower() == "security" for r in rbac_mappings):
+        rbac_mappings.append({
+            "department": "Security",
+            "models": ["* (All Gateway Models)", "llama3.2:3b"]
+        })
+
+    return {
+        "summary": {
+            "total_users": len(users),
+            "active_users": active_count,
+            "departments": len(departments_set),
+            "administrators": admin_count
+        },
+        "users": user_list,
+        "rbac_mappings": rbac_mappings
+    }
 
 @router.get("/{full_path:path}", response_class=HTMLResponse)
 def get_dashboard_html(full_path: str = ""):
