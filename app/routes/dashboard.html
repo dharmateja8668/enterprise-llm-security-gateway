@@ -51,6 +51,17 @@
         select:hover, button:hover, input:focus { border-color: #cbd5e1; }
         .btn-primary { background: #fff; border: 1px solid var(--border-color); cursor: pointer; font-weight: 500; box-shadow: 0 1px 2px rgba(0,0,0,0.04); }
         .btn-primary:hover { background: #f8fafc; border-color: #cbd5e1; }
+        .btn-danger { background: #ef4444; color: #ffffff; border: 1px solid #dc2626; cursor: pointer; font-weight: 600; box-shadow: 0 1px 2px rgba(0,0,0,0.05); }
+        .btn-danger:hover { background: #dc2626; border-color: #b91c1c; }
+        .btn-danger-sm { background: #fee2e2; color: #991b1b; border: 1px solid #fca5a5; padding: 3px 8px; font-size: 11px; border-radius: 4px; cursor: pointer; font-weight: 600; }
+        .btn-danger-sm:hover { background: #ef4444; color: #ffffff; }
+
+        .modal-backdrop { position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; background: rgba(15, 23, 42, 0.6); z-index: 1000; display: flex; align-items: center; justify-content: center; backdrop-filter: blur(2px); }
+        .modal-card { background: #ffffff; border-radius: 8px; border: 1px solid var(--border-color); width: 440px; max-width: 90%; padding: 22px; box-shadow: 0 10px 25px rgba(0,0,0,0.15); }
+
+        .toast-container { position: fixed; bottom: 24px; right: 24px; z-index: 2000; padding: 12px 20px; border-radius: 8px; font-size: 13px; font-weight: 600; box-shadow: 0 4px 12px rgba(0,0,0,0.15); transition: all 0.3s ease; }
+        .toast-success { background: #10b981; color: #ffffff; }
+        .toast-error { background: #ef4444; color: #ffffff; }
         
         .page-container { padding: 24px 30px; overflow-y: auto; display: none; flex-direction: column; }
         .page-container.active { display: flex; }
@@ -148,13 +159,14 @@
                 <div class="header-subtitle" id="page-subtitle">AI Security Gateway Monitoring</div>
             </div>
             <div class="header-controls">
+                <button id="deleteAllLogsBtn" class="btn-danger" style="display:none;" onclick="openDeleteAllModal()">🗑️ Delete All Logs</button>
                 <select id="timeRangeFilter" onchange="refreshCurrentPage()">
                     <option value="24h">Last 24 Hours</option>
                     <option value="7d" selected>Last 7 Days</option>
                     <option value="30d">Last 30 Days</option>
                 </select>
                 <button class="btn-primary" onclick="refreshCurrentPage()">Refresh</button>
-                <div style="width: 32px; height: 32px; background: #e2e8f0; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 12px; font-weight: bold; color: #475569;">AD</div>
+                <div style="width: 32px; height: 32px; background: #e2e8f0; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 12px; font-weight: bold; color: #475569;" id="user-avatar-badge">AD</div>
             </div>
         </div>
 
@@ -277,7 +289,7 @@
                 <div class="card-body" style="padding: 0;">
                     <div class="table-container">
                         <table>
-                            <thead><tr><th>Timestamp</th><th>User</th><th>AI Model</th><th>Event</th><th>Status</th><th>Severity</th></tr></thead>
+                            <thead><tr><th>Timestamp</th><th>User</th><th>AI Model</th><th>Event</th><th>Status</th><th>Severity</th><th>Action</th></tr></thead>
                             <tbody id="all-events-tbody"></tbody>
                         </table>
                     </div>
@@ -292,7 +304,7 @@
                 <div class="card-body" style="padding: 0;">
                     <div class="table-container">
                         <table>
-                            <thead><tr><th>Timestamp</th><th>User</th><th>AI Model</th><th>Event</th><th>Status</th><th>Severity</th></tr></thead>
+                            <thead><tr><th>Timestamp</th><th>User</th><th>AI Model</th><th>Event</th><th>Status</th><th>Severity</th><th>Action</th></tr></thead>
                             <tbody id="blocked-prompts-tbody"></tbody>
                         </table>
                     </div>
@@ -307,7 +319,7 @@
                 <div class="card-body" style="padding: 0;">
                     <div class="table-container">
                         <table>
-                            <thead><tr><th>Timestamp</th><th>User</th><th>Model</th><th>Status</th></tr></thead>
+                            <thead><tr><th>Timestamp</th><th>User</th><th>Model</th><th>Status</th><th>Action</th></tr></thead>
                             <tbody id="audit-logs-tbody"></tbody>
                         </table>
                     </div>
@@ -359,12 +371,26 @@
                 <div class="card-header" style="display: flex; justify-content: space-between; align-items: center; gap: 15px; flex-wrap: wrap;">
                     <span>Active Users</span>
                     <div style="display: flex; gap: 12px; align-items: center; flex-wrap: wrap;">
-                        <input type="text" id="userSearchInput" placeholder="Search users by name, email, role..." style="width: 240px;" oninput="filterAndRenderUsersTable()">
-                        <select id="userRoleFilter" onchange="filterAndRenderUsersTable()" style="width: 140px;">
+                        <input type="text" id="userSearchInput" placeholder="Search users by name, email, role..." style="width: 220px;" oninput="loadUsersPage()">
+                        <select id="userRoleFilter" onchange="loadUsersPage()" style="width: 130px;">
                             <option value="ALL">All Roles</option>
                         </select>
-                        <select id="userDeptFilter" onchange="filterAndRenderUsersTable()" style="width: 160px;">
+                        <select id="userDeptFilter" onchange="loadUsersPage()" style="width: 140px;">
                             <option value="ALL">All Departments</option>
+                        </select>
+                        <select id="userSortSelect" onchange="loadUsersPage()" style="width: 180px;">
+                            <option value="name_asc">Sort: Name A → Z</option>
+                            <option value="name_desc">Sort: Name Z → A</option>
+                            <option value="email_asc">Sort: Email A → Z</option>
+                            <option value="email_desc">Sort: Email Z → A</option>
+                            <option value="department_asc">Sort: Dept A → Z</option>
+                            <option value="department_desc">Sort: Dept Z → A</option>
+                            <option value="role_asc">Sort: Role A → Z</option>
+                            <option value="role_desc">Sort: Role Z → A</option>
+                            <option value="most_active">Sort: Most Active</option>
+                            <option value="least_active">Sort: Least Active</option>
+                            <option value="most_recent">Sort: Recent Activity</option>
+                            <option value="oldest">Sort: Oldest Activity</option>
                         </select>
                     </div>
                 </div>
@@ -373,11 +399,12 @@
                         <table>
                             <thead>
                                 <tr>
-                                    <th>User</th>
-                                    <th>Email</th>
-                                    <th>Role</th>
-                                    <th>Department</th>
-                                    <th>Status</th>
+                                    <th onclick="handleHeaderSort('name')" style="cursor:pointer;" title="Click to sort by Name">User <span id="hdr-sort-name">↕</span></th>
+                                    <th onclick="handleHeaderSort('email')" style="cursor:pointer;" title="Click to sort by Email">Email <span id="hdr-sort-email">↕</span></th>
+                                    <th onclick="handleHeaderSort('role')" style="cursor:pointer;" title="Click to sort by Role">Role <span id="hdr-sort-role">↕</span></th>
+                                    <th onclick="handleHeaderSort('department')" style="cursor:pointer;" title="Click to sort by Department">Department <span id="hdr-sort-department">↕</span></th>
+                                    <th onclick="handleHeaderSort('status')" style="cursor:pointer;" title="Click to sort by Status">Status <span id="hdr-sort-status">↕</span></th>
+                                    <th onclick="handleHeaderSort('activity')" style="cursor:pointer;" title="Click to sort by Activity">Activity <span id="hdr-sort-activity">↕</span></th>
                                     <th>AI Model Access</th>
                                 </tr>
                             </thead>
@@ -621,11 +648,17 @@
                 let html = '';
                 data.forEach(e => {
                     let statusClass = e.status === 'Blocked' ? 'badge-blocked' : (e.status === 'Error' ? 'badge-error' : 'badge-allowed');
+                    const logId = e.id || e.request_id;
+                    const actionBtnHtml = currentUserIsAdmin 
+                        ? `<button class="btn-danger-sm" onclick="confirmDeleteIndividualLog('${logId}')">🗑️ Delete</button>`
+                        : `<span style="color:var(--text-muted);">—</span>`;
+
                     html += `<tr>
                         <td>${formatTimestamp(e.timestamp)}</td>
                         <td>${formatUserBadge(e.user)}</td>
                         <td>${formatModelBadge(e.model)}</td>
                         <td><span class="badge ${statusClass}">${e.status}</span></td>
+                        <td>${actionBtnHtml}</td>
                     </tr>`;
                 });
                 document.getElementById('audit-logs-tbody').innerHTML = html;
@@ -654,24 +687,161 @@
         }
 
         let allUsersData = [];
+        let currentSortField = 'name';
+        let currentSortOrder = 'asc';
+        let currentUserIsAdmin = false;
+        let targetDeleteLogId = null;
+
+        function showToast(message, isError = false) {
+            const toast = document.getElementById('toastNotification');
+            toast.innerText = message;
+            toast.className = 'toast-container ' + (isError ? 'toast-error' : 'toast-success');
+            toast.style.display = 'block';
+            setTimeout(() => { toast.style.display = 'none'; }, 3500);
+        }
+
+        function openDeleteAllModal() {
+            document.getElementById('confirmDeleteAllInput').value = '';
+            document.getElementById('confirmDeleteAllBtn').disabled = true;
+            document.getElementById('confirmDeleteAllBtn').style.opacity = '0.5';
+            document.getElementById('confirmDeleteAllBtn').style.cursor = 'not-allowed';
+            document.getElementById('deleteAllModal').style.display = 'flex';
+        }
+
+        function closeDeleteAllModal() {
+            document.getElementById('deleteAllModal').style.display = 'none';
+        }
+
+        function validateDeleteAllInput() {
+            const val = document.getElementById('confirmDeleteAllInput').value.trim();
+            const btn = document.getElementById('confirmDeleteAllBtn');
+            if (val === 'DELETE') {
+                btn.disabled = false;
+                btn.style.opacity = '1';
+                btn.style.cursor = 'pointer';
+            } else {
+                btn.disabled = true;
+                btn.style.opacity = '0.5';
+                btn.style.cursor = 'not-allowed';
+            }
+        }
+
+        async function executeDeleteAllLogs() {
+            closeDeleteAllModal();
+            const params = new URLSearchParams(window.location.search);
+            let url = '/dashboard/logs';
+            if (params.get('user_id')) url += `?user_id=${encodeURIComponent(params.get('user_id'))}`;
+            
+            try {
+                const res = await fetch(url, { method: 'DELETE' });
+                const data = await res.json();
+                if (!res.ok) {
+                    showToast(data.detail?.error || 'Unable to delete logs. Please try again.', true);
+                } else {
+                    showToast('All SOC logs deleted successfully.');
+                    refreshCurrentPage();
+                }
+            } catch (e) {
+                showToast('Unable to delete logs. Please try again.', true);
+            }
+        }
+
+        function confirmDeleteIndividualLog(logId) {
+            targetDeleteLogId = logId;
+            document.getElementById('deleteIndividualModal').style.display = 'flex';
+        }
+
+        function closeIndividualDeleteModal() {
+            targetDeleteLogId = null;
+            document.getElementById('deleteIndividualModal').style.display = 'none';
+        }
+
+        async function executeDeleteIndividualLog() {
+            if (!targetDeleteLogId) return;
+            const logId = targetDeleteLogId;
+            closeIndividualDeleteModal();
+            
+            const params = new URLSearchParams(window.location.search);
+            let url = `/dashboard/logs/${encodeURIComponent(logId)}`;
+            if (params.get('user_id')) url += `?user_id=${encodeURIComponent(params.get('user_id'))}`;
+            
+            try {
+                const res = await fetch(url, { method: 'DELETE' });
+                const data = await res.json();
+                if (!res.ok) {
+                    showToast(data.detail?.error || 'Unable to delete logs. Please try again.', true);
+                } else {
+                    showToast('Log deleted successfully.');
+                    refreshCurrentPage();
+                }
+            } catch (e) {
+                showToast('Unable to delete logs. Please try again.', true);
+            }
+        }
+
+        function handleHeaderSort(field) {
+            if (currentSortField === field) {
+                currentSortOrder = (currentSortOrder === 'asc') ? 'desc' : 'asc';
+            } else {
+                currentSortField = field;
+                currentSortOrder = 'asc';
+            }
+            const select = document.getElementById('userSortSelect');
+            if (select) {
+                select.value = `${field}_${currentSortOrder}`;
+            }
+            loadUsersPage();
+        }
+
+        async function checkUserRole() {
+            const params = new URLSearchParams(window.location.search);
+            let url = '/dashboard/me';
+            if (params.get('user_id')) url += `?user_id=${encodeURIComponent(params.get('user_id'))}`;
+
+            try {
+                const res = await fetch(url);
+                if (res.ok) {
+                    const data = await res.json();
+                    currentUserIsAdmin = !!data.is_admin;
+                    const delBtn = document.getElementById('deleteAllLogsBtn');
+                    if (delBtn) {
+                        delBtn.style.display = currentUserIsAdmin ? 'inline-block' : 'none';
+                    }
+                    const avatar = document.getElementById('user-avatar-badge');
+                    if (avatar) {
+                        avatar.innerText = (data.username || 'AD').slice(0, 2).toUpperCase();
+                        avatar.title = `${data.username} (${data.role})`;
+                    }
+                }
+            } catch(e) {}
+        }
 
         async function loadUsersPage() {
             const tbody = document.getElementById('users-tbody');
             const rbacContainer = document.getElementById('rbac-mappings-container');
             
-            tbody.innerHTML = `<tr><td colspan="6" style="text-align:center; padding:30px; color:var(--text-muted);">
+            tbody.innerHTML = `<tr><td colspan="7" style="text-align:center; padding:30px; color:var(--text-muted);">
                 <div style="font-size:14px; font-weight:500;">Loading users & RBAC configuration...</div>
             </td></tr>`;
+
+            const search = (document.getElementById('userSearchInput')?.value || '').trim();
+            const roleFilter = document.getElementById('userRoleFilter')?.value || 'ALL';
+            const deptFilter = document.getElementById('userDeptFilter')?.value || 'ALL';
+            const sortVal = document.getElementById('userSortSelect')?.value || `${currentSortField}_${currentSortOrder}`;
+
+            const params = new URLSearchParams(window.location.search);
+            let url = `/dashboard/users-data?sort_by=${sortVal}&search=${encodeURIComponent(search)}&role=${encodeURIComponent(roleFilter)}&department=${encodeURIComponent(deptFilter)}`;
+            if (params.get('user_id')) url += `&user_id=${encodeURIComponent(params.get('user_id'))}`;
             
             try {
-                const res = await fetch('/dashboard/users-data');
+                const res = await fetch(url);
                 if (!res.ok) {
                     let errText = 'Unable to load users. Please check the gateway backend and try again.';
                     try {
                         const errJson = await res.json();
                         if (errJson.detail && errJson.detail.error) errText = errJson.detail.error;
                     } catch(e) {}
-                    tbody.innerHTML = `<tr><td colspan="6" style="text-align:center; padding:30px; color:var(--danger);">
+                    tbody.innerHTML = `<tr><td colspan="7" style="text-align:center; padding:30px; color:var(--danger);">
                         ⚠️ ${errText}
                         <br><button class="btn-primary" style="margin-top:10px;" onclick="loadUsersPage()">Retry</button>
                     </td></tr>`;
@@ -688,25 +858,45 @@
 
                 allUsersData = data.users || [];
 
-                // Populate Role and Dept filter options
-                const roleFilter = document.getElementById('userRoleFilter');
-                const deptFilter = document.getElementById('userDeptFilter');
+                // Update Header icons
+                ['name', 'email', 'role', 'department', 'status', 'activity'].forEach(f => {
+                    const iconEl = document.getElementById(`hdr-sort-${f}`);
+                    if (iconEl) {
+                        if (sortVal.startsWith(f)) {
+                            iconEl.innerText = sortVal.endsWith('desc') ? '▼' : '▲';
+                        } else {
+                            iconEl.innerText = '↕';
+                        }
+                    }
+                });
 
-                const roles = new Set(allUsersData.map(u => u.role));
-                const depts = new Set(allUsersData.map(u => u.department));
+                if (allUsersData.length === 0) {
+                    tbody.innerHTML = `<tr><td colspan="7" style="text-align:center; padding:35px; color:var(--text-muted);">
+                        <div style="font-size:16px; font-weight:600; margin-bottom:4px;">No users found</div>
+                        <div style="font-size:13px;">There are currently no users matching your criteria.</div>
+                    </td></tr>`;
+                    return;
+                }
 
-                let currentRole = roleFilter.value || 'ALL';
-                let currentDept = deptFilter.value || 'ALL';
+                let html = '';
+                allUsersData.forEach(u => {
+                    let roleBadgeClass = 'badge-low';
+                    if (u.role === 'ADMIN' || u.role === 'ADMINISTRATOR') roleBadgeClass = 'badge-blocked';
+                    else if (u.role === 'SECURITY_ANALYST' || u.role === 'SOC_ANALYST') roleBadgeClass = 'badge-warning';
 
-                roleFilter.innerHTML = `<option value="ALL">All Roles</option>` + 
-                    Array.from(roles).map(r => `<option value="${r}">${r}</option>`).join('');
-                deptFilter.innerHTML = `<option value="ALL">All Departments</option>` + 
-                    Array.from(depts).map(d => `<option value="${d}">${d}</option>`).join('');
+                    const modelsHtml = u.allowed_models.map(m => `<span class="model-badge">🤖 ${m}</span>`).join(' ');
 
-                if (roles.has(currentRole)) roleFilter.value = currentRole;
-                if (depts.has(currentDept)) deptFilter.value = currentDept;
-
-                filterAndRenderUsersTable();
+                    html += `<tr>
+                        <td>${formatUserBadge(u.username)}</td>
+                        <td style="font-family: var(--font-mono); font-size: 12px; color: #475569;">${u.email}</td>
+                        <td><span class="badge ${roleBadgeClass}">${u.role}</span></td>
+                        <td><span style="font-size: 13px; font-weight: 500; color: #334155;">🏢 ${u.department}</span></td>
+                        <td><span class="badge badge-allowed">● ${u.status}</span></td>
+                        <td style="font-family: var(--font-mono); font-size: 12px; font-weight: 600; color: #0284c7;">${u.activity} reqs</td>
+                        <td><div style="display:flex; flex-wrap:wrap; gap:4px;">${modelsHtml}</div></td>
+                    </tr>`;
+                });
+                tbody.innerHTML = html;
 
                 // Render RBAC Mappings
                 let rbacHtml = '';
@@ -723,58 +913,11 @@
                 rbacContainer.innerHTML = rbacHtml || `<div style="color:var(--text-muted); font-size:13px;">No RBAC mappings configured.</div>`;
 
             } catch (err) {
-                tbody.innerHTML = `<tr><td colspan="6" style="text-align:center; padding:30px; color:var(--danger);">
+                tbody.innerHTML = `<tr><td colspan="7" style="text-align:center; padding:30px; color:var(--danger);">
                     Unable to load users. Please check the gateway backend and try again.
                     <br><button class="btn-primary" style="margin-top:10px;" onclick="loadUsersPage()">Retry</button>
                 </td></tr>`;
             }
-        }
-
-        function filterAndRenderUsersTable() {
-            const tbody = document.getElementById('users-tbody');
-            const search = (document.getElementById('userSearchInput').value || '').toLowerCase().trim();
-            const selectedRole = document.getElementById('userRoleFilter').value;
-            const selectedDept = document.getElementById('userDeptFilter').value;
-
-            const filtered = allUsersData.filter(u => {
-                const matchesSearch = !search || 
-                    (u.username && u.username.toLowerCase().includes(search)) ||
-                    (u.email && u.email.toLowerCase().includes(search)) ||
-                    (u.role && u.role.toLowerCase().includes(search)) ||
-                    (u.department && u.department.toLowerCase().includes(search));
-
-                const matchesRole = selectedRole === 'ALL' || u.role === selectedRole;
-                const matchesDept = selectedDept === 'ALL' || u.department === selectedDept;
-
-                return matchesSearch && matchesRole && matchesDept;
-            });
-
-            if (filtered.length === 0) {
-                tbody.innerHTML = `<tr><td colspan="6" style="text-align:center; padding:35px; color:var(--text-muted);">
-                    <div style="font-size:16px; font-weight:600; margin-bottom:4px;">No users found</div>
-                    <div style="font-size:13px;">There are currently no users available for this view.</div>
-                </td></tr>`;
-                return;
-            }
-
-            let html = '';
-            filtered.forEach(u => {
-                let roleBadgeClass = 'badge-low';
-                if (u.role === 'ADMIN' || u.role === 'ADMINISTRATOR') roleBadgeClass = 'badge-blocked';
-                else if (u.role === 'SECURITY_ANALYST') roleBadgeClass = 'badge-warning';
-
-                const modelsHtml = u.allowed_models.map(m => `<span class="model-badge">🤖 ${m}</span>`).join(' ');
-
-                html += `<tr>
-                    <td>${formatUserBadge(u.username)}</td>
-                    <td style="font-family: var(--font-mono); font-size: 12px; color: #475569;">${u.email}</td>
-                    <td><span class="badge ${roleBadgeClass}">${u.role}</span></td>
-                    <td><span style="font-size: 13px; font-weight: 500; color: #334155;">🏢 ${u.department}</span></td>
-                    <td><span class="badge badge-allowed">● ${u.status}</span></td>
-                    <td><div style="display:flex; flex-wrap:wrap; gap:4px;">${modelsHtml}</div></td>
-                </tr>`;
-            });
-            tbody.innerHTML = html;
         }
 
         function renderTable(tbodyId, data, showSeverity) {
@@ -790,6 +933,11 @@
                 if (e.status === 'Blocked') statusClass = 'badge-blocked';
                 else if (e.status === 'Error') statusClass = 'badge-error';
 
+                const logId = e.id || e.request_id;
+                const actionBtnHtml = currentUserIsAdmin 
+                    ? `<button class="btn-danger-sm" onclick="confirmDeleteIndividualLog('${logId}')">🗑️ Delete</button>`
+                    : `<span style="color:var(--text-muted);">—</span>`;
+
                 html += `<tr>
                     <td>${formatTimestamp(e.timestamp)}</td>
                     <td>${formatUserBadge(e.user)}</td>
@@ -797,6 +945,7 @@
                     <td style="font-weight: 500;">${e.event}</td>
                     <td><span class="badge ${statusClass}">${e.status}</span></td>
                     <td><span class="badge ${badgeClass}">${e.severity}</span></td>
+                    <td>${actionBtnHtml}</td>
                 </tr>`;
             });
             document.getElementById(tbodyId).innerHTML = html;
@@ -886,7 +1035,8 @@
         }
 
         // Initialize SPA
-        document.addEventListener('DOMContentLoaded', () => {
+        document.addEventListener('DOMContentLoaded', async () => {
+            await checkUserRole();
             let route = window.location.pathname;
             if (!route.startsWith('/dashboard')) {
                 route = '/dashboard/';
@@ -894,5 +1044,49 @@
             navigateTo(route, false);
         });
     </script>
+
+    <!-- Modal: Delete All Logs -->
+    <div id="deleteAllModal" class="modal-backdrop" style="display:none;">
+        <div class="modal-card">
+            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px;">
+                <h3 style="color:var(--danger); font-size:17px; font-weight:700;">🗑️ Delete All Logs?</h3>
+                <span style="cursor:pointer; font-size:18px; color:var(--text-muted);" onclick="closeDeleteAllModal()">&times;</span>
+            </div>
+            <div style="margin-bottom:15px;">
+                <p style="font-size:13px; color:var(--text-dark); margin-bottom:10px; line-height:1.4;">
+                    Are you sure you want to permanently delete all SOC logs? This action cannot be undone.
+                </p>
+                <p style="font-size:12px; color:var(--text-muted); margin-bottom:8px;">
+                    Please type <strong style="color:var(--danger);">DELETE</strong> below to confirm:
+                </p>
+                <input type="text" id="confirmDeleteAllInput" placeholder="Type DELETE to confirm" style="width:100%;" oninput="validateDeleteAllInput()">
+            </div>
+            <div style="display:flex; justify-content:flex-end; gap:10px;">
+                <button class="btn-primary" onclick="closeDeleteAllModal()">Cancel</button>
+                <button id="confirmDeleteAllBtn" class="btn-danger" disabled style="opacity:0.5; cursor:not-allowed;" onclick="executeDeleteAllLogs()">Delete All Logs</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Modal: Individual Delete -->
+    <div id="deleteIndividualModal" class="modal-backdrop" style="display:none;">
+        <div class="modal-card">
+            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px;">
+                <h3 style="color:var(--danger); font-size:16px; font-weight:700;">🗑️ Delete this log?</h3>
+                <span style="cursor:pointer; font-size:18px; color:var(--text-muted);" onclick="closeIndividualDeleteModal()">&times;</span>
+            </div>
+            <p style="font-size:13px; color:var(--text-dark); margin-bottom:20px;">
+                This security log will be permanently removed.
+            </p>
+            <div style="display:flex; justify-content:flex-end; gap:10px;">
+                <button class="btn-primary" onclick="closeIndividualDeleteModal()">Cancel</button>
+                <button class="btn-danger" onclick="executeDeleteIndividualLog()">Delete</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Toast Notification Banner -->
+    <div id="toastNotification" class="toast-container" style="display:none;"></div>
 </body>
 </html>
+

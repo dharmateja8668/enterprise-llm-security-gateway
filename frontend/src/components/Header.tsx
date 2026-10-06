@@ -10,7 +10,8 @@ interface HeaderProps {
 }
 
 export const Header: React.FC<HeaderProps> = ({ userRole, userId }) => {
-  const isAdmin = userRole?.toLowerCase() === 'admin' || userRole?.toLowerCase() === 'administrator';
+  const roleLower = userRole?.toLowerCase() || '';
+  const hasSocAccess = ['admin', 'administrator', 'soc_analyst', 'security_analyst', 'manager'].includes(roleLower);
 
   return (
     <header className="h-16 border-b border-slate-200 dark:border-slate-800/80 bg-white/90 dark:bg-slate-950/90 backdrop-blur-md px-4 sm:px-6 flex items-center justify-between z-20 sticky top-0 transition-colors">
@@ -35,17 +36,17 @@ export const Header: React.FC<HeaderProps> = ({ userRole, userId }) => {
         </div>
       </div>
 
-      {/* Right section: Theme Toggle & Admin-Only SOC Dashboard Link */}
+      {/* Right section: Theme Toggle & Authorized SOC Dashboard Link */}
       <div className="flex items-center space-x-3">
         <ThemeToggle />
 
-        {isAdmin && (
+        {hasSocAccess && (
           <a
             href={userId ? `http://127.0.0.1:8081/dashboard?user_id=${encodeURIComponent(userId)}` : "http://127.0.0.1:8081/dashboard"}
             target="_blank"
             rel="noopener noreferrer"
             className="flex items-center space-x-1.5 px-3.5 py-1.5 rounded-lg bg-blue-50 dark:bg-blue-600/20 border border-blue-200 dark:border-blue-500/30 text-blue-700 dark:text-blue-300 hover:bg-blue-100 dark:hover:bg-blue-600/30 transition-all text-xs font-medium group shadow-xs cursor-pointer"
-            title="Open SOC Compliance Dashboard (Administrator Only)"
+            title="Open SOC Compliance Dashboard"
           >
             <LayoutDashboard className="w-3.5 h-3.5 text-blue-600 dark:text-blue-400 group-hover:scale-110 transition-transform" />
             <span>SOC Dashboard</span>

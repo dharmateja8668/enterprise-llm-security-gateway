@@ -29,7 +29,7 @@ import {
   Lock,
 } from 'lucide-react';
 
-const LOCAL_STORAGE_AUTH_KEY = 'zaalima_auth_config_v1';
+const SESSION_STORAGE_AUTH_KEY = 'zaalima_auth_config_v1';
 
 export default function ChatbotPage() {
   const [auth, setAuth] = useState<GatewayAuth | null>(null);
@@ -41,10 +41,10 @@ export default function ChatbotPage() {
   const [isAuthModalOpen, setIsAuthModalOpen] = useState<boolean>(false);
   const [isMobileSidebarOpen, setIsMobileSidebarOpen] = useState<boolean>(false);
 
-  // 1. Load initial Auth settings from localStorage on mount
+  // 1. Load initial Auth settings from sessionStorage on mount
   useEffect(() => {
     try {
-      const savedAuth = localStorage.getItem(LOCAL_STORAGE_AUTH_KEY);
+      const savedAuth = sessionStorage.getItem(SESSION_STORAGE_AUTH_KEY);
       if (savedAuth) {
         setAuth(JSON.parse(savedAuth));
       }
@@ -122,7 +122,7 @@ export default function ChatbotPage() {
     setActiveSessionId(''); // Start on Welcome Screen for new login
     setAuth(newAuth);
     try {
-      localStorage.setItem(LOCAL_STORAGE_AUTH_KEY, JSON.stringify(newAuth));
+      sessionStorage.setItem(SESSION_STORAGE_AUTH_KEY, JSON.stringify(newAuth));
     } catch {}
   };
 
@@ -135,14 +135,15 @@ export default function ChatbotPage() {
     setActiveSessionId('');
     setAuth(null);
     try {
-      localStorage.removeItem(LOCAL_STORAGE_AUTH_KEY);
+      sessionStorage.removeItem(SESSION_STORAGE_AUTH_KEY);
+      localStorage.removeItem('zaalima_auth_config_v1'); // clear legacy localStorage key
     } catch {}
   };
 
   const saveAuthSettings = (newAuth: GatewayAuth) => {
     setAuth(newAuth);
     try {
-      localStorage.setItem(LOCAL_STORAGE_AUTH_KEY, JSON.stringify(newAuth));
+      sessionStorage.setItem(SESSION_STORAGE_AUTH_KEY, JSON.stringify(newAuth));
     } catch {}
   };
 
@@ -281,11 +282,12 @@ export default function ChatbotPage() {
   }
 
   const userRole = auth.user?.role || 'employee';
-  const isAdmin = userRole.toLowerCase() === 'admin' || userRole.toLowerCase() === 'administrator';
+  const roleLower = userRole.toLowerCase();
+  const hasSocAccess = ['admin', 'administrator', 'soc_analyst', 'security_analyst', 'manager'].includes(roleLower);
 
   return (
     <div className="h-screen bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-slate-100 flex flex-col font-sans selection:bg-cyan-500/30 selection:text-cyan-200 overflow-hidden transition-colors">
-      {/* Header - Conditionally shows SOC Dashboard button ONLY for Admin */}
+      {/* Header - Conditionally shows SOC Dashboard button for authorized roles */}
       <Header userRole={userRole} userId={auth.userId} />
 
       <div className="flex-1 flex min-h-0 overflow-hidden">
@@ -435,8 +437,8 @@ export default function ChatbotPage() {
                   <span>Authenticated Workspace — User: {auth.userId} | Role: {userRole}</span>
                 </div>
 
-                {/* Dashboard Banner for Admin ONLY */}
-                {isAdmin && (
+                {/* Dashboard Banner for Authorized Roles */}
+                {hasSocAccess && (
                   <div className="max-w-2xl mx-auto p-4 rounded-2xl bg-gradient-to-r from-blue-50 to-indigo-50 dark:from-blue-950/40 dark:to-slate-900/60 border border-blue-200 dark:border-blue-800/40 flex flex-col sm:flex-row items-center justify-between gap-4 text-left shadow-xs">
                     <div className="flex items-center space-x-3">
                       <div className="p-2.5 rounded-xl bg-blue-100 dark:bg-blue-500/20 text-blue-700 dark:text-blue-400">
@@ -447,7 +449,7 @@ export default function ChatbotPage() {
                           SOC Security & Compliance Dashboard
                         </h4>
                         <p className="text-[11px] text-slate-500 dark:text-slate-400">
-                          View real-time security events, blocked prompts, and audit logs (Administrator Privilege).
+                          View real-time security events, blocked prompts, and audit logs ({userRole.toUpperCase()} Privilege).
                         </p>
                       </div>
                     </div>

@@ -64,6 +64,8 @@ DEFAULT_ENTITIES: List[str] = [
 # ---------------------------------------------------------------------------
 from presidio_analyzer.predefined_recognizers import UsSsnRecognizer
 
+import re
+
 class RelaxedUsSsnRecognizer(UsSsnRecognizer):
     """Extends Presidio's UsSsnRecognizer to ensure formatted synthetic/sample SSNs
     (e.g., 123-45-6789) are protected and not discarded as non-PII example numbers."""
@@ -74,6 +76,68 @@ class RelaxedUsSsnRecognizer(UsSsnRecognizer):
         if any(c in pattern_text for c in "-. ") and only_digits in ("123456789", "987654320", "078051120"):
             return False
         return super().invalidate_result(pattern_text)
+
+
+class ContextPersonRecognizer(EntityRecognizer):
+    """Recognizes person names following contextual phrases (e.g., 'my name is X', 'I am X')."""
+
+    def __init__(self):
+        super().__init__(
+            supported_entities=["PERSON"],
+            name="ContextPersonRecognizer"
+        )
+        self.pattern = re.compile(
+            r"(?i)\b(?:my name is|name is|i am|this is|call me|name:?)\s+([A-Za-z]{2,30})\b"
+        )
+
+    def load(self) -> None:
+        pass
+
+    def analyze(self, text: str, entities: List[str], nlp_artifacts=None) -> List[RecognizerResult]:
+        results = []
+        if "PERSON" not in entities and entities != []:
+            # If specific entities were requested and PERSON is not among them, skip
+            if "PERSON" not in entities:
+                return results
+        for match in self.pattern.finditer(text):
+            results.append(
+                RecognizerResult(
+                    entity_type="PERSON",
+                    start=match.start(1),
+                    end=match.end(1),
+                    score=0.85,
+                )
+            )
+        return results
+
+
+class FormattedCreditCardRecognizer(EntityRecognizer):
+    """Recognizes formatted credit card numbers with hyphens/spaces or raw 13-19 digits."""
+
+    def __init__(self):
+        super().__init__(
+            supported_entities=["CREDIT_CARD"],
+            name="FormattedCreditCardRecognizer"
+        )
+        self.pattern = re.compile(
+            r"\b(?:\d{4}[-\s]?){3}\d{4}\b|\b\d{13,19}\b"
+        )
+
+    def load(self) -> None:
+        pass
+
+    def analyze(self, text: str, entities: List[str], nlp_artifacts=None) -> List[RecognizerResult]:
+        results = []
+        for match in self.pattern.finditer(text):
+            results.append(
+                RecognizerResult(
+                    entity_type="CREDIT_CARD",
+                    start=match.start(),
+                    end=match.end(),
+                    score=0.9,
+                )
+            )
+        return results
 
 
 _analyzer_engine: Optional[AnalyzerEngine] = None
@@ -97,6 +161,8 @@ def _get_analyzer() -> AnalyzerEngine:
         except Exception:
             pass
         _analyzer_engine.registry.add_recognizer(RelaxedUsSsnRecognizer())
+        _analyzer_engine.registry.add_recognizer(ContextPersonRecognizer())
+        _analyzer_engine.registry.add_recognizer(FormattedCreditCardRecognizer())
 
         # Register custom recognizer for Internal Project Codes
         # Note: This is a placeholder format (ZAALIMA-PROJ-YYYY-NNN) and can be replaced 

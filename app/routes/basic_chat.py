@@ -68,6 +68,8 @@ class SimpleChatRequest(BaseModel):
     prompt: str
     user_id: Optional[str] = None
     chat_id: Optional[str] = None
+    model: Optional[str] = None
+    provider: Optional[str] = None
 
 
 class PIISummary(BaseModel):
@@ -91,14 +93,23 @@ async def chat_endpoint(
     user_token: str = Depends(verify_api_key), db: Session = Depends(get_db),
 ):
     """
-    POST /chat — authenticated, rate-limited gateway to the internal Ollama LLM.
+    POST /chat — authenticated, rate-limited gateway to LLM providers (Ollama / OpenAI / Anthropic).
 
     Full request flow:
       User → FastAPI → Auth (Day 4) → Rate Limit (Day 5)
-      → PII Detection (Week 2) → Ollama (Day 6) → User
+      → Chat Thread Ownership & Persistence
+      → RBAC Model Permission Check (Week 4)
+      → PII Detection & Anonymization (Week 2)
+      → Prompt Injection Check (Week 3)
+      → LLM Egress (Day 6 / Provider Factory)
+      → Response Content Safety Check (Week 3)
+      → PII Deanonymization (Week 2)
+      → PostgreSQL Audit Logging → Client
     """
     ollama = _get_ollama()
-    
+    target_provider = (request.provider or "ollama").lower()
+    target_model = request.model if request.model else ollama.model
+
     # Extract the user from the request or fallback to hashed token
     actual_user = request.user_id if request.user_id else _token_identifier(user_token)
     
@@ -131,14 +142,15 @@ async def chat_endpoint(
             )
 
     if not thread:
+        import uuid as _uuid
+        thread_id = request.chat_id if request.chat_id else str(_uuid.uuid4())
         thread = ChatThread(
-            id=request.chat_id if request.chat_id else None,
+            id=thread_id,
             user_id=actual_user,
             title=request.prompt[:32] + ("..." if len(request.prompt) > 32 else "")
         )
         db.add(thread)
         db.commit()
-        db.refresh(thread)
 
     # Save User prompt message record
     user_msg_rec = ChatMessageRecord(
@@ -152,7 +164,6 @@ async def chat_endpoint(
 
     # ── Week 4: RBAC Policy Verification ─────────────────────────────────────
     from app.security.rbac import check_rbac_access
-    target_model = ollama.model
     if not check_rbac_access(db, actual_user, target_model):
         logger.warning(
             "RBAC access denied for user=%s model=%s prompt=%s",
@@ -165,7 +176,7 @@ async def chat_endpoint(
             _blocked_log = RequestLog(
                 request_id=str(_uuid.uuid4()),
                 user_token=actual_user,
-                provider="ollama",
+                provider=target_provider,
                 model=target_model,
                 prompt="[REDACTED — RBAC blocked]",
                 status="rbac_blocked",
@@ -211,8 +222,9 @@ async def chat_endpoint(
         )
 
     # ── Week 3 Day 1: Prompt Injection Detection ─────────────────────────────
-    # Run injection detection on the RAW prompt to avoid false positives caused by PII redaction tags (like <PHONE_NUMBER>)
-    injection_result = await asyncio.to_thread(check_prompt_injection, request.prompt)
+    # Run injection detection with PII-awareness flag to prevent ML false positives on benign PII prompts
+    has_pii = bool(pii_summary and pii_summary.pii_detected)
+    injection_result = await asyncio.to_thread(check_prompt_injection, request.prompt, has_pii=has_pii)
     if injection_result.is_injection:
         logger.warning(
             "Prompt injection blocked: method=%s risk_score=%.3f reason=%s "
@@ -230,8 +242,8 @@ async def chat_endpoint(
             _blocked_log = RequestLog(
                 request_id=_blocked_id,
                 user_token=actual_user,
-                provider="ollama",
-                model=_get_ollama().model,
+                provider=target_provider,
+                model=target_model,
                 prompt="[REDACTED — injection blocked]",
                 status="injection_blocked",
             )
@@ -256,9 +268,28 @@ async def chat_endpoint(
     start_time = time.time()
     req_id = str(uuid.uuid4())
 
-    # ── Day 6: Internal LLM (Ollama) ────────────────────────────────────────
+    # ── Day 6 & Week 1: Provider-Abstracted LLM Routing ────────────────────
     try:
-        response_text = await ollama.chat(safe_prompt)
+        if target_provider == "ollama" and not request.model:
+            response_text = await ollama.chat(safe_prompt)
+        else:
+            from app.providers.factory import ProviderFactory
+            from app.models.schemas import ChatRequest, Message
+            provider_inst = ProviderFactory.get_provider(target_provider)
+            chat_req = ChatRequest(
+                messages=[Message(role="user", content=safe_prompt)],
+                model=target_model,
+                provider=target_provider
+            )
+            chat_resp = await provider_inst.chat_completions(chat_req)
+            if chat_resp and chat_resp.choices:
+                choice = chat_resp.choices[0]
+                if isinstance(choice, dict):
+                    response_text = choice.get("message", {}).get("content", "")
+                else:
+                    response_text = choice.message.content
+            else:
+                response_text = ""
         status = "success"
         status_code = 200
         error_msg = None
@@ -275,8 +306,8 @@ async def chat_endpoint(
         log_entry = RequestLog(
             request_id=req_id,
             user_token=actual_user,
-            provider="ollama",
-            model=ollama.model,
+            provider=target_provider,
+            model=target_model,
             prompt=safe_prompt,
             status=status,
         )
@@ -334,7 +365,7 @@ async def chat_endpoint(
             user_id=actual_user,
             role="assistant",
             content=final_response,
-            model=ollama.model,
+            model=target_model,
             pii_summary_json=pii_json
         )
         db.add(ai_msg_rec)
@@ -343,7 +374,7 @@ async def chat_endpoint(
     return SimpleChatResponse(
         success=True,
         response=final_response,
-        model=ollama.model,
+        model=target_model,
         chat_id=thread.id,
         pii_summary=pii_summary,
     )

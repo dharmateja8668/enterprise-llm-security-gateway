@@ -162,3 +162,74 @@ def test_rbac_invalid_api_key():
         headers={"Authorization": "Bearer wrong-token"},
     )
     assert resp.status_code == 401
+
+
+# ==============================================================================
+# TEST 5 — SOC DASHBOARD ROLE ACCESS
+# ==============================================================================
+def test_soc_analyst_dashboard_access(setup_rbac_users_and_policies):
+    """Test 5: SOC Dashboard access control for ADMIN, SOC_ANALYST, EMPLOYEE, and FINANCE."""
+    db = TestingSessionLocal()
+    try:
+        # Create users for all roles if not present
+        u_analyst = User(
+            username="test_soc_analyst",
+            email="analyst@example.com",
+            password_hash="secret",
+            department="Security",
+            role="soc_analyst",
+        )
+        u_emp = User(
+            username="test_employee",
+            email="employee@example.com",
+            password_hash="secret",
+            department="Operations",
+            role="employee",
+        )
+        u_fin = User(
+            username="test_finance",
+            email="finance@example.com",
+            password_hash="secret",
+            department="Finance",
+            role="finance",
+        )
+        db.add_all([u_analyst, u_emp, u_fin])
+        db.commit()
+
+        # 1. ADMIN -> 200 OK
+        resp_admin = client.get("/dashboard?user_id=test_admin_user", headers=AUTH_HEADERS)
+        assert resp_admin.status_code == 200
+        assert resp_admin.json()["status"] == "success"
+
+        resp_admin_metrics = client.get("/dashboard/metrics?user_id=test_admin_user", headers=AUTH_HEADERS)
+        assert resp_admin_metrics.status_code == 200
+
+        # 2. SOC_ANALYST -> 200 OK
+        resp_analyst = client.get("/dashboard?user_id=test_soc_analyst", headers=AUTH_HEADERS)
+        assert resp_analyst.status_code == 200
+        assert resp_analyst.json()["status"] == "success"
+
+        resp_analyst_metrics = client.get("/dashboard/metrics?user_id=test_soc_analyst", headers=AUTH_HEADERS)
+        assert resp_analyst_metrics.status_code == 200
+
+        resp_analyst_events = client.get("/dashboard/security-events?user_id=test_soc_analyst", headers=AUTH_HEADERS)
+        assert resp_analyst_events.status_code == 200
+
+        # 3. EMPLOYEE -> 403 Forbidden
+        resp_emp = client.get("/dashboard?user_id=test_employee", headers=AUTH_HEADERS)
+        assert resp_emp.status_code == 403
+        assert resp_emp.json()["detail"]["blocked"] is True
+
+        resp_emp_metrics = client.get("/dashboard/metrics?user_id=test_employee", headers=AUTH_HEADERS)
+        assert resp_emp_metrics.status_code == 403
+
+        # 4. FINANCE -> 403 Forbidden
+        resp_fin = client.get("/dashboard?user_id=test_finance", headers=AUTH_HEADERS)
+        assert resp_fin.status_code == 403
+        assert resp_fin.json()["detail"]["blocked"] is True
+
+        resp_fin_metrics = client.get("/dashboard/metrics?user_id=test_finance", headers=AUTH_HEADERS)
+        assert resp_fin_metrics.status_code == 403
+    finally:
+        db.close()
+

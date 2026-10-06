@@ -184,8 +184,7 @@ _HEURISTIC_PATTERNS: List[Tuple[str, re.Pattern]] = [
     (
         "override_instructions",
         re.compile(
-            r"forget\s+(all\s+)?(previous|prior|earlier|above|your)?\s*"
-            r"(instructions?|prompts?|directives?|constraints?)",
+            r"forget\s+(all\s+)?(my\s+)?(previous|prior|earlier|above|your|the)?\s*(system\s+)?(instructions?|prompts?|directives?|constraints?|rules?|guidelines?)",
             re.IGNORECASE,
         ),
     ),
@@ -429,33 +428,25 @@ def _check_rebuff(prompt: str) -> Optional[InjectionCheckResult]:
 # Combined detection — public entry point
 # ---------------------------------------------------------------------------
 
-def check_prompt_injection(prompt: str) -> InjectionCheckResult:
+def check_prompt_injection(prompt: str, has_pii: bool = False) -> InjectionCheckResult:
     """Check *prompt* for prompt injection attempts.
 
     This is the **single public function** that the FastAPI route calls.
 
-    Detection flow (Day 1 + Day 2)
-    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    Detection flow (Day 1 + Day 2 + PII-Aware Classification)
+    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
     1. If ``PROMPT_INJECTION_ENABLED=false`` → return SAFE immediately.
     2. Normalise the prompt text.
     3. Run heuristic detection.
        - Score == 1.0 → short-circuit BLOCK (skip further checks).
-    4. Run local ML detection (Day 2, optional).
-       - ML injection_score >= ML_PROMPT_INJECTION_THRESHOLD → BLOCK.
-    5. Run Rebuff ML (optional, Day 1).
-    6. Combine all results:
-       - If *any* detector flagged → BLOCK.
-       - Combined risk_score = max(all individual scores).
-       - detection_method records which detector(s) fired.
-
-    Design invariant
-    ~~~~~~~~~~~~~~~~
-    This function **never raises**.  Any internal exception is caught, logged,
-    and a fail-closed (BLOCK) result is returned so an unexpected bug cannot
-    open the security gate.  ML or Rebuff failures fall back to heuristic.
+    4. If PII is present (has_pii=True) and heuristic scan is clean:
+       - Return SAFE (prevents false-positive ML classification of PII requests).
+    5. Run local ML detection and Rebuff ML.
+    6. Combine all results.
 
     Args:
         prompt: The raw (or anonymised) user prompt to evaluate.
+        has_pii: True if Presidio DLP detected PII entities in the prompt.
 
     Returns:
         An :class:`InjectionCheckResult` describing the verdict.
@@ -482,6 +473,17 @@ def check_prompt_injection(prompt: str) -> InjectionCheckResult:
                 "Heuristic short-circuit: category=%s", heuristic_result.reason
             )
             return heuristic_result
+
+        # If PII was detected and heuristic found no prompt injection patterns,
+        # treat prompt as a safe user request containing PII (prevents ML false positives).
+        if has_pii:
+            logger.info("PII detected and heuristic is clean; bypassing ML prompt injection check.")
+            return InjectionCheckResult(
+                is_injection=False,
+                risk_score=0.0,
+                reason="safe_pii_sanitized",
+                detection_method="heuristic",
+            )
 
         # -- Step 2: Local ML detection (Day 2) ------------------------------
         ml_result = _check_local_ml(prompt)

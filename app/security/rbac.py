@@ -92,15 +92,31 @@ def init_default_rbac_policies(db: Session):
     default_models = set([configured_model, "llama3.2:3b", "tinyllama"])
 
     # 1. Seed Policies
-    existing_policy_count = db.query(RBACPolicy).count()
-    if existing_policy_count == 0:
-        for model in default_models:
-            db.add(RBACPolicy(department="Engineering", role="employee", allowed_model=model))
-            db.add(RBACPolicy(department="Cybersecurity", role="employee", allowed_model=model))
-            db.add(RBACPolicy(department="Security", role="employee", allowed_model=model))
-            db.add(RBACPolicy(department="Security", role="security_analyst", allowed_model=model))
-            db.add(RBACPolicy(department="HR", role="employee", allowed_model="tinyllama"))
-        db.commit()
+    for model in default_models:
+        for dept, role in [
+            ("Engineering", "employee"),
+            ("Cybersecurity", "employee"),
+            ("Security", "employee"),
+            ("Security", "security_analyst"),
+            ("Security", "soc_analyst"),
+            ("Security", "*"),
+        ]:
+            existing_p = db.query(RBACPolicy).filter(
+                RBACPolicy.department == dept,
+                RBACPolicy.role == role,
+                RBACPolicy.allowed_model == model,
+            ).first()
+            if not existing_p:
+                db.add(RBACPolicy(department=dept, role=role, allowed_model=model))
+    
+    hr_p = db.query(RBACPolicy).filter(
+        RBACPolicy.department == "HR",
+        RBACPolicy.role == "employee",
+        RBACPolicy.allowed_model == "tinyllama",
+    ).first()
+    if not hr_p:
+        db.add(RBACPolicy(department="HR", role="employee", allowed_model="tinyllama"))
+    db.commit()
 
     # 2. Seed Default Accounts with @zaalima.in organizational domain
     import hashlib
