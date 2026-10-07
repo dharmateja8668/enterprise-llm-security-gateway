@@ -5,8 +5,9 @@ Enterprise LLM Security Gateway — FastAPI application entrypoint.
 from dotenv import load_dotenv
 load_dotenv()  # must happen before any module that reads os.getenv()
 
-from fastapi import FastAPI
-from app.db import engine, Base, SessionLocal
+from fastapi import FastAPI, Depends
+from sqlalchemy.orm import Session
+from app.db import engine, Base, SessionLocal, get_db
 from app.models import audit
 from app.routes.chat import router as chat_router
 from app.routes.basic_chat import router as basic_chat_router
