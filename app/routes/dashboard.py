@@ -433,23 +433,45 @@ def get_blocked_prompts(db: Session = Depends(get_db), time_range: str = Query("
         "counts": [injection, content_safety, rbac]
     }
 
+EXCLUDED_AI_MODELS = {
+    "none",
+    "unknown",
+    "restricted-model-xyz",
+    "unauthorized-restricted-model",
+}
+
+EXCLUDED_AI_PROVIDERS = {
+    "gateway_auth",
+    "dashboard_auth",
+}
+
 @router.get("/model-usage")
 def get_model_usage(db: Session = Depends(get_db), time_range: str = Query("7d")):
     cutoff = get_time_filter(time_range)
     
+    excluded_models_lower = [m.lower() for m in EXCLUDED_AI_MODELS]
+    excluded_providers_lower = [p.lower() for p in EXCLUDED_AI_PROVIDERS]
+    
+    # Query model counts excluding non-AI events and synthetic security-test model names
     model_counts = db.query(
         RequestLog.model, func.count(RequestLog.id)
     ).filter(
-        RequestLog.timestamp >= cutoff
+        RequestLog.timestamp >= cutoff,
+        RequestLog.model.isnot(None),
+        RequestLog.model != "",
+        func.lower(RequestLog.model).not_in(excluded_models_lower),
+        or_(RequestLog.provider.is_(None), func.lower(RequestLog.provider).not_in(excluded_providers_lower))
     ).group_by(RequestLog.model).all()
     
     total = sum(count for _, count in model_counts)
     
     models = []
     for model, count in model_counts:
+        if not model or model.lower() in EXCLUDED_AI_MODELS:
+            continue
         pct = round((count / total) * 100, 1) if total > 0 else 0
         models.append({
-            "name": model if model else "Unknown",
+            "name": model,
             "count": count,
             "percentage": pct
         })

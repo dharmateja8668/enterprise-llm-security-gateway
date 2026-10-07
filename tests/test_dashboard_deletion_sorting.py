@@ -215,3 +215,42 @@ def test_user_search_and_sort(setup_dashboard_test_data):
     users = resp.json()["users"]
     assert len(users) == 1
     assert users[0]["username"] == "admin_user"
+
+
+# ==============================================================================
+# TEST 8 — MODEL USAGE FILTERS OUT NON-AI AND SYNTHETIC TEST MODELS
+# ==============================================================================
+def test_model_usage_excludes_non_ai_and_synthetic_models():
+    """Verify that /dashboard/model-usage excludes 'none', 'restricted-model-xyz', and 'unauthorized-restricted-model'."""
+    db: Session = TestingSessionLocal()
+    try:
+        db.query(RequestLog).delete()
+        db.commit()
+
+        # Seed real LLM log and non-AI / test model logs
+        db.add_all([
+            RequestLog(request_id="m1", user_token="u1", provider="ollama", model="llama3.2:3b", prompt="Hello", status="success"),
+            RequestLog(request_id="m2", user_token="u1", provider="ollama", model="llama3.2:3b", prompt="World", status="success"),
+            RequestLog(request_id="m3", user_token="u1", provider="gateway_auth", model="none", prompt="[LOGIN_SUCCESS]", status="success"),
+            RequestLog(request_id="m4", user_token="u1", provider="ollama", model="restricted-model-xyz", prompt="Test", status="rbac_blocked"),
+            RequestLog(request_id="m5", user_token="u1", provider="ollama", model="unauthorized-restricted-model", prompt="Test", status="rbac_blocked"),
+        ])
+        db.commit()
+
+        resp = client.get("/dashboard/model-usage?user_id=admin_user", headers=AUTH_HEADERS)
+        assert resp.status_code == 200
+        models_data = resp.json()
+
+        # Verify only actual LLMs are returned
+        model_names = [m["name"] for m in models_data]
+        assert "none" not in model_names
+        assert "restricted-model-xyz" not in model_names
+        assert "unauthorized-restricted-model" not in model_names
+        assert model_names == ["llama3.2:3b"]
+
+        # Verify percentage calculation (2 out of 2 real LLM requests = 100%)
+        assert models_data[0]["count"] == 2
+        assert models_data[0]["percentage"] == 100.0
+    finally:
+        db.close()
+

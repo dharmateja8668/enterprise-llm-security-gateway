@@ -1,0 +1,28 @@
+apiVersion: autoscaling/2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: gateway-hpa
+  labels:
+    app: security-gateway
+    app.kubernetes.io/name: enterprise-llm-security-gateway
+    app.kubernetes.io/component: gateway
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: gateway-deployment
+  minReplicas: 2
+  maxReplicas: 10
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: 70
+    - type: Resource
+      resource:
+        name: memory
+        target:
+          type: Utilization
+          averageUtilization: 80

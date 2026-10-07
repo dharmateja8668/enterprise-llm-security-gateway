@@ -57,6 +57,37 @@ async def root():
 async def health_check():
     return {"status": "healthy"}
 
+@app.get("/health/readiness", tags=["Health"])
+async def readiness_check(db: Session = Depends(get_db)):
+    """
+    Kubernetes readiness probe & Docker service health check.
+    Validates PostgreSQL database connection and Redis availability.
+    """
+    db_ok = False
+    redis_ok = False
+    try:
+        from sqlalchemy import text
+        db.execute(text("SELECT 1"))
+        db_ok = True
+    except Exception:
+        db_ok = False
+
+    try:
+        from app.security.rate_limiter import redis_client
+        if redis_client:
+            redis_ok = bool(redis_client.ping())
+        else:
+            redis_ok = True
+    except Exception:
+        redis_ok = False
+
+    status_str = "ready" if (db_ok and redis_ok) else "degraded"
+    return {
+        "status": status_str,
+        "database": "connected" if db_ok else "disconnected",
+        "redis": "connected" if redis_ok else "disconnected"
+    }
+
 @app.get("/health/ollama", tags=["Health"])
 async def ollama_health():
     """

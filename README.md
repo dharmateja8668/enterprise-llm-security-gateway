@@ -119,6 +119,91 @@ Run manual synthetic verification across `/chat`:
 
 ---
 
+## Containerization & Kubernetes Deployment (Week 4 Day 6)
+
+### 1. Docker Build & Direct Run
+
+Build the production Docker image:
+```bash
+docker build -t enterprise-llm-security-gateway:latest .
+```
+
+Run container manually with `.env` file configuration:
+```bash
+docker run -d \
+  --name zaalima_gateway \
+  -p 8081:8081 \
+  --env-file .env \
+  enterprise-llm-security-gateway:latest
+```
+
+Verify container health:
+```bash
+docker inspect --format='{{json .State.Health}}' zaalima_gateway
+curl http://localhost:8081/health
+```
+
+---
+
+### 2. Docker Compose (Local Stack with PostgreSQL & Redis)
+
+Start all services (FastAPI Gateway, PostgreSQL, and Redis) locally:
+```bash
+docker compose up -d
+```
+
+Check running container status & health:
+```bash
+docker compose ps
+```
+
+View aggregated container logs:
+```bash
+docker compose logs -f gateway
+```
+
+Stop stack and tear down containers:
+```bash
+docker compose down
+```
+
+---
+
+### 3. Kubernetes Deployment & Horizontal Pod Autoscaling (HPA)
+
+Apply configuration maps, secrets, deployment, service, and HPA manifests:
+```bash
+# 1. Apply Secret & ConfigMap
+kubectl apply -f k8s/secret.yaml
+kubectl apply -f k8s/configmap.yaml
+
+# 2. Deploy Gateway Service & Deployment
+kubectl apply -f k8s/service.yaml
+kubectl apply -f k8s/deployment.yaml
+
+# 3. Configure Horizontal Pod Autoscaler (HPA)
+kubectl apply -f k8s/hpa.yaml
+```
+
+Check Deployment & Pod status:
+```bash
+kubectl get deployments
+kubectl get pods -l app=security-gateway -o wide
+```
+
+Check Horizontal Pod Autoscaler (HPA) status:
+```bash
+kubectl get hpa gateway-hpa
+kubectl describe hpa gateway-hpa
+```
+
+Port-forward service to local machine for testing:
+```bash
+kubectl port-forward service/gateway-service 8081:8081
+```
+
+---
+
 ## Known Limitations
 
 1. **LLM Context Awareness**: Highly degraded or summarized LLM responses that omit placeholders will not have PII restored. This is by design to prioritize data privacy over speculative text reconstruction.
@@ -129,9 +214,11 @@ Run manual synthetic verification across `/chat`:
 
 ## Technology Stack
 
-- **Python 3.13 / FastAPI**: High-performance asynchronous API framework.
+- **Python 3.11 / FastAPI**: High-performance asynchronous API framework.
 - **Microsoft Presidio**: Enterprise PII detection engine (`presidio-analyzer`).
 - **Ollama**: Local LLM engine (`tinyllama`, `llama3.2:3b`).
 - **PostgreSQL / SQLAlchemy**: Secure audit logging.
 - **Redis / FakeRedis**: Sliding-window rate limiting (10 req/min/user).
+- **Docker / Docker Compose**: Multi-container containerization for local development.
+- **Kubernetes / HPA**: Cloud-native deployment with automated CPU/Memory Horizontal Pod Autoscaling.
 - **pytest / respx / fakeredis**: Automated test framework with complete provider isolation.
