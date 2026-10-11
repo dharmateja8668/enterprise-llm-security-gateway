@@ -1,7 +1,8 @@
-apiVersion: autoscaling/2
+apiVersion: autoscaling/v2
 kind: HorizontalPodAutoscaler
 metadata:
   name: gateway-hpa
+  namespace: zaalima-gateway
   labels:
     app: security-gateway
     app.kubernetes.io/name: enterprise-llm-security-gateway
@@ -12,7 +13,7 @@ spec:
     kind: Deployment
     name: gateway-deployment
   minReplicas: 2
-  maxReplicas: 10
+  maxReplicas: 5
   metrics:
     - type: Resource
       resource:
@@ -26,3 +27,21 @@ spec:
         target:
           type: Utilization
           averageUtilization: 80
+  behavior:
+    scaleUp:
+      stabilizationWindowSeconds: 0
+      policies:
+        - type: Percent
+          value: 100
+          periodSeconds: 15
+        - type: Pods
+          value: 2
+          periodSeconds: 15
+      selectPolicy: Max
+    scaleDown:
+      stabilizationWindowSeconds: 300
+      policies:
+        - type: Percent
+          value: 50
+          periodSeconds: 60
+      selectPolicy: Min

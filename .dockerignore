@@ -21,4 +21,11 @@ frontend/
 docs/
 logs/
 *.exe
+*.bat
+*.ps1
+.idea/
+.vscode/
+pytest_output.txt
+e2e_results.log
+test_run.log
 Dockerfile

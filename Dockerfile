@@ -23,8 +23,16 @@ RUN pip install --no-cache-dir -r requirements.txt
 # Download spaCy model required for Microsoft Presidio PII Analyzer
 RUN python -m spacy download en_core_web_sm
 
-# Copy full application source code
-COPY . .
+# Create non-root application user for production security hardening
+RUN groupadd -g 10001 appgroup && \
+    useradd -u 10001 -g appgroup -s /bin/sh -m appuser
+
+# Copy full application source code and set ownership
+COPY . /app
+RUN chown -R appuser:appgroup /app
+
+# Switch to non-root user
+USER appuser
 
 # Expose gateway port
 EXPOSE 8081
