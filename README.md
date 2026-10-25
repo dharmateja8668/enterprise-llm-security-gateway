@@ -9,7 +9,18 @@ Production-grade security proxy gateway positioned between enterprise client app
 
 ---
 
-## 2. Project Overview
+## 2. Problem Statement
+Enterprises integrating Large Language Models (LLMs) into production workflows face significant security, privacy, and operational challenges:
+* **Confidential Data Leakage**: Inadvertent transmission of Personally Identifiable Information (PII), protected health data (PHI), and corporate secrets to LLMs, risking regulatory non-compliance (GDPR, HIPAA, DPDP).
+* **Adversarial Prompt Injections**: Malicious user inputs designed to override system constraints, hijack conversational context, or leak proprietary prompt instructions.
+* **Denial-of-Wallet & Resource Depletion**: Uncontrolled request volume leading to provider rate-limit exhaustion and excessive billing.
+* **Lack of Tamper-Evident Auditing**: Inability to monitor, trace, or inspect generative AI queries without storing raw, unredacted sensitive customer information.
+
+The **Zaalima Enterprise LLM Security Gateway** addresses these enterprise risks by serving as an automated, intelligent proxy that sanitizes, inspects, rate-limits, and logs all generative AI interactions in real time.
+
+---
+
+## 3. Project Overview
 The Enterprise LLM Security Gateway intercepts prompts before they reach internal or external LLM providers (Ollama, OpenAI, Anthropic). It sanitizes sensitive data (PII, PHI, financial identifiers), detects and neutralizes adversarial prompt injection attacks, applies rate limiting to prevent denial-of-wallet/DoS attacks, safely restores anonymized responses upon return, and commits audit logs into PostgreSQL without leaking sensitive content.
 
 ### High-Level Architecture Flow
@@ -47,7 +58,7 @@ Client Application Receives Restored Response
 
 ---
 
-## 3. Main Security Features
+## 4. Main Security Features
 
 1. **Authentication & Authorization**: Bearer token authentication and role-based access control (Admin, Security Analyst, User) governing endpoints and administrative capabilities.
 2. **Distributed Rate Limiting**: Sliding-window / token-bucket rate limiter backed by Redis (10 requests per 60-second window per user) with graceful failover to FakeRedis during development.
@@ -59,9 +70,10 @@ Client Application Receives Restored Response
 
 ---
 
-## 4. Technology Stack
+## 5. Technology Stack
 
 * **Backend Framework**: Python 3.11+, FastAPI, Uvicorn, Pydantic v2
+* **Frontend Dashboard**: Next.js 16 (App Router), React 19, TypeScript, Tailwind CSS v4, Lucide Icons
 * **NLP & PII Detection**: Microsoft Presidio Analyzer (`presidio-analyzer`), Microsoft Presidio Anonymizer (`presidio-anonymizer`), spaCy (`en_core_web_sm`)
 * **Adversarial Detection**: Transformers, PyTorch, DeBERTa-v3 prompt-injection model
 * **Database & ORM**: PostgreSQL 15, SQLAlchemy 2.0, Alembic migrations, SQLite fallback
@@ -73,7 +85,7 @@ Client Application Receives Restored Response
 
 ---
 
-## 5. Project Directory Structure
+## 6. Project Directory Structure
 
 ```text
 enterprise-llm-security-gateway/
@@ -86,14 +98,19 @@ enterprise-llm-security-gateway/
 ├── alembic.ini                   # Alembic migration configuration
 ├── alembic/                      # Database migrations
 │   └── versions/                 # Version scripts for audit logs & RBAC schemas
-├── app/                          # Core application package
-│   ├── main.py                   # FastAPI entrypoint, lifecycle, routes, health
+├── app/                          # Core FastAPI application package
+│   ├── main.py                   # FastAPI entrypoint, lifecycle, routes, health, CORS
 │   ├── db.py                     # SQLAlchemy database session management
-│   ├── models/                   # Database models (audit, rbac, security)
+│   ├── models/                   # Database models (audit, rbac, security, user)
 │   ├── providers/                # LLM connectors (Ollama, OpenAI, Anthropic)
 │   ├── routes/                   # API endpoints (/chat, /auth, /dashboard, /pii)
 │   ├── security/                 # PII scanner, rate limiter, prompt injection detector
 │   └── services/                 # Business logic and session services
+├── frontend/                     # Next.js 16 SOC Compliance Dashboard & Reference Chat UI
+│   ├── src/app/                  # App Router pages and global CSS
+│   ├── src/components/           # Reusable UI components (Sidebar, AuthModal, ThemeToggle)
+│   ├── src/lib/                  # API client, TypeScript models, Theme Context
+│   └── package.json              # Frontend dependencies and scripts
 ├── k8s/                          # Kubernetes production manifests
 │   ├── namespace.yaml            # zaalima-gateway namespace
 │   ├── configmap.yaml            # Gateway non-sensitive environment variables
@@ -103,7 +120,7 @@ enterprise-llm-security-gateway/
 │   ├── deployment.yaml           # Gateway Deployment (2 replicas, probes, non-root)
 │   ├── service.yaml              # Gateway ClusterIP Service (Port 8081)
 │   └── hpa.yaml                  # Horizontal Pod Autoscaler (autoscaling/v2)
-└── tests/                        # Automated test suites
+└── tests/                        # Automated test suites (296 tests)
     ├── conftest.py               # Shared test fixtures & mocks
     ├── test_anonymization.py     # PII replacement & restoration tests
     ├── test_auth.py              # Authentication & bearer token verification
@@ -312,7 +329,36 @@ Once the gateway is running (port 8081):
 
 ---
 
-## 14. Kubernetes Deployment
+## 14. Frontend SOC Compliance Dashboard & Reference Chat UI (Next.js)
+
+The project includes an enterprise web interface developed with **Next.js 16, React 19, TypeScript, and Tailwind CSS v4**.
+
+### Key Features
+* **Interactive AI Chat Interface**: Real-time prompt sanitization demonstrating live PII masking (`<PII_PERSON_1>`, etc.) and server-side reversible restoration.
+* **SOC Security Monitoring**: Visual metrics detailing detected PII categories, blocked prompt injections, request status, and execution latency.
+* **Role-Based Access Control (RBAC) UI**: Visual management for organizational roles (`admin`, `security_analyst`, `employee`) and department policies.
+* **Adaptive Theme Support**: Dark / Light mode toggle powered by React Context and modern Tailwind CSS.
+
+### Running the Frontend
+1. Navigate to the `frontend/` directory:
+   ```bash
+   cd frontend
+   ```
+2. Install npm dependencies:
+   ```bash
+   npm install
+   ```
+3. Launch the development server:
+   ```bash
+   npm run dev
+   ```
+4. Open your browser:
+   * **Dashboard URL**: `http://localhost:3000`
+   * **Backend Gateway Target**: Configured to proxy to FastAPI at `http://127.0.0.1:8081`
+
+---
+
+## 15. Kubernetes Deployment
 
 The gateway includes production Kubernetes manifests located in `k8s/` configured for the `zaalima-gateway` namespace.
 
@@ -358,7 +404,7 @@ kubectl get deployments -n zaalima-gateway
 
 ---
 
-## 15. Kubernetes Service Access
+## 16. Kubernetes Service Access
 
 The gateway service is exposed internally as `ClusterIP` on port 8081.
 
@@ -374,7 +420,7 @@ curl http://localhost:8081/health
 
 ---
 
-## 16. Horizontal Pod Autoscaling (HPA)
+## 17. Horizontal Pod Autoscaling (HPA)
 
 The HPA manifest (`k8s/hpa.yaml`) utilizes the stable `autoscaling/v2` API:
 * **Target**: `Deployment/gateway-deployment`
@@ -392,7 +438,7 @@ kubectl describe hpa gateway-hpa -n zaalima-gateway
 
 ---
 
-## 17. Metrics Server Requirements
+## 18. Metrics Server Requirements
 
 For the Kubernetes Horizontal Pod Autoscaler to observe CPU and memory consumption, the Kubernetes cluster must have the Metrics Server installed.
 
@@ -412,9 +458,9 @@ For the Kubernetes Horizontal Pod Autoscaler to observe CPU and memory consumpti
 
 ---
 
-## 18. Testing Instructions
+## 19. Testing Instructions
 
-### Run the Complete Automated Test Suite (287+ Tests)
+### Run the Complete Automated Test Suite (296 Tests)
 ```powershell
 .\venv\Scripts\pytest -v
 ```
@@ -436,7 +482,7 @@ For the Kubernetes Horizontal Pod Autoscaler to observe CPU and memory consumpti
 
 ---
 
-## 19. Troubleshooting
+## 20. Troubleshooting
 
 ### 1. Docker Desktop Fails to Start (Windows GPU / Electron Crash)
 * **Symptom**: `failed to connect to the docker API at npipe:////./pipe/dockerDesktopLinuxEngine`. Error in logs: `GPU process isn't usable. Goodbye.`
@@ -467,7 +513,7 @@ For the Kubernetes Horizontal Pod Autoscaler to observe CPU and memory consumpti
 
 ---
 
-## 20. Security Considerations
+## 21. Security Considerations
 
 1. **Non-Root Execution**: Docker container and Kubernetes pods run as unprivileged user `appuser` (UID `10001`) with root capabilities dropped (`ALL`).
 2. **Secret Management**: Production secrets are mounted via Kubernetes `Secret` resources (`gateway-secrets`) or `.env` files; zero raw secrets are stored in Git or container images.
@@ -477,7 +523,7 @@ For the Kubernetes Horizontal Pod Autoscaler to observe CPU and memory consumpti
 
 ---
 
-## 21. Known Limitations
+## 22. Known Limitations
 
 1. **Aggressive Context Compaction**: If an external LLM heavily summarizes or drops generated placeholders (e.g., omitting `<PII_PERSON_1>`), the gateway cannot restore original text without guessing. Speculative restoration is deliberately disabled to guarantee privacy.
 2. **Metrics Server Dependency**: Horizontal Pod Autoscaling depends on cluster metrics infrastructure. In clusters without Metrics Server, the deployment remains at the minimum replica count (2).
@@ -485,7 +531,7 @@ For the Kubernetes Horizontal Pod Autoscaler to observe CPU and memory consumpti
 
 ---
 
-## 22. Cleanup Commands
+## 23. Cleanup Commands
 
 ### Tear down Docker Compose Stack
 ```bash

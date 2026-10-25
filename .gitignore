@@ -21,6 +21,11 @@ pytest_output.txt
 e2e_results.log
 test_run.log
 
+# Scratch and helper scripts
+rewrite_dashboard.py
+scratch_test_rl.py
+
 # Windows binaries and installers
 *.exe
 Docker Desktop Installer.exe
+

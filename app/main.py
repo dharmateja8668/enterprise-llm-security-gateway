@@ -29,14 +29,19 @@ app = FastAPI(
     version="1.0.0",
 )
 
+import os
 from fastapi.middleware.cors import CORSMiddleware
+
+# Trusted CORS origins (Next.js SOC dashboard and trusted client applications)
+allowed_origins_env = os.getenv("ALLOWED_ORIGINS", "http://localhost:3000,http://127.0.0.1:3000")
+trusted_origins = [origin.strip() for origin in allowed_origins_env.split(",") if origin.strip()]
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=['*'],
+    allow_origins=trusted_origins,
     allow_credentials=True,
-    allow_methods=['*'],
-    allow_headers=['*'],
+    allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+    allow_headers=["*"],
 )
 
 # Create database tables if they don't exist

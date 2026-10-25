@@ -79,15 +79,35 @@ class RelaxedUsSsnRecognizer(UsSsnRecognizer):
 
 
 class ContextPersonRecognizer(EntityRecognizer):
-    """Recognizes person names following contextual phrases (e.g., 'my name is X', 'I am X')."""
+    """
+    Recognizes person names using generalized NLP contextual indicators:
+    1. Salutations, titles, and relational roles (Hello <Name>, Lead <Name>, Colleague is <Name>).
+    2. Communication action verbs (<Name> contacted, <Name> told, <Name> needs).
+    3. Contact-associated entity patterns (<Name> (email: ...)).
+    4. Quoted or punctuated speaker entities (User said: ("<Name>")).
+    5. Role descriptions (<Name> is the team leader).
+    6. Intra-document entity propagation (subsequent references to recognized name tokens).
+    """
 
     def __init__(self):
         super().__init__(
             supported_entities=["PERSON"],
             name="ContextPersonRecognizer"
         )
-        self.pattern = re.compile(
-            r"(?i)\b(?:my name is|name is|i am|this is|call me|name:?)\s+([A-Za-z]{2,30})\b"
+        self.prefix_pattern = re.compile(
+            r"(?i)\b(?:my\s+name\s+is|name\s+is|i\s+am|this\s+is|call\s+me|name\s*:\s*|"
+            r"hello|hi|hey|dear|welcome|mention|greet|"
+            r"(?<!team\s)\blead(?:\s+developer)?\s+|colleague\s+is|candidate\s+name\s+is|applicant\s+name\s+is|"
+            r"confidential\s*:\s*|private\s*:\s*|user(?:\s+said)?\s*[:\s\(\[\"']+)\s*([A-Z][a-z]{1,25})\b"
+        )
+        self.action_pattern = re.compile(
+            r"\b([A-Z][a-z]{1,25})\s+(?:contacted|told|needs|sent|emailed|called|asked|reported|submitted|scheduled)\b"
+        )
+        self.role_subject_pattern = re.compile(
+            r"\b([A-Z][a-z]{1,25})\s+is\s+the\s+(?:team\s+)?(?:lead|leader|manager|developer|engineer|analyst|author|owner|contact)\b"
+        )
+        self.metadata_assoc_pattern = re.compile(
+            r"\b([A-Z][a-z]{1,25})\s*\((?:email|contact|card|phone|ssn):|\b([A-Z][a-z]{1,25})'s\s+email\b"
         )
 
     def load(self) -> None:
@@ -95,19 +115,60 @@ class ContextPersonRecognizer(EntityRecognizer):
 
     def analyze(self, text: str, entities: List[str], nlp_artifacts=None) -> List[RecognizerResult]:
         results = []
-        if "PERSON" not in entities and entities != []:
-            # If specific entities were requested and PERSON is not among them, skip
-            if "PERSON" not in entities:
-                return results
-        for match in self.pattern.finditer(text):
-            results.append(
-                RecognizerResult(
-                    entity_type="PERSON",
-                    start=match.start(1),
-                    end=match.end(1),
-                    score=0.85,
+        if entities and "PERSON" not in entities:
+            return results
+
+        detected_spans = set()
+        detected_names = set()
+
+        EXCLUDED_TOKENS = {
+            "the", "this", "that", "there", "here", "what", "how", "why", "when", "please",
+            "name", "email", "card", "phone", "project", "user", "client", "customer",
+            "candidate", "applicant", "employee", "lead", "leader", "team", "er", "is",
+            "are", "was", "were", "and", "or", "in", "on", "at", "to", "for", "with",
+            "my", "your", "his", "her", "our", "their", "primary", "secondary"
+        }
+
+        def add_match(start: int, end: int, token: str, score: float = 0.85):
+            if token.lower() in EXCLUDED_TOKENS:
+                return
+            if (start, end) not in detected_spans:
+                detected_spans.add((start, end))
+                detected_names.add(token)
+                results.append(
+                    RecognizerResult(
+                        entity_type="PERSON",
+                        start=start,
+                        end=end,
+                        score=score,
+                    )
                 )
-            )
+
+        # 1. Match prefix context
+        for match in self.prefix_pattern.finditer(text):
+            add_match(match.start(1), match.end(1), match.group(1), 0.85)
+
+        # 2. Match action verb context
+        for match in self.action_pattern.finditer(text):
+            add_match(match.start(1), match.end(1), match.group(1), 0.85)
+
+        # 3. Match role subject context
+        for match in self.role_subject_pattern.finditer(text):
+            add_match(match.start(1), match.end(1), match.group(1), 0.85)
+
+        # 4. Match metadata associated patterns
+        for match in self.metadata_assoc_pattern.finditer(text):
+            token = match.group(1) or match.group(2)
+            start = match.start(1) if match.group(1) else match.start(2)
+            end = match.end(1) if match.group(1) else match.end(2)
+            add_match(start, end, token, 0.85)
+
+        # 5. Intra-document name propagation for any detected name token
+        for name in list(detected_names):
+            prop_pattern = re.compile(rf"\b{re.escape(name)}\b")
+            for match in prop_pattern.finditer(text):
+                add_match(match.start(), match.end(), name, 0.85)
+
         return results
 
 
@@ -263,14 +324,24 @@ def analyze_pii(
     )
 
     pii_entities: List[PIIEntity] = []
+    lead_trim_words = ("mention ", "hello ", "hi ", "dear ", "call ", "lead ", "mr. ", "ms. ", "mrs. ", "dr. ")
     for r in sorted(results, key=lambda x: x.start):
+        start, end = r.start, r.end
+        snippet = text[start:end]
+        if r.entity_type == "PERSON":
+            lower_snip = snippet.lower()
+            for w in lead_trim_words:
+                if lower_snip.startswith(w):
+                    start += len(w)
+                    snippet = text[start:end]
+                    break
         pii_entities.append(
             PIIEntity(
                 entity_type=r.entity_type,
-                start=r.start,
-                end=r.end,
+                start=start,
+                end=end,
                 score=round(r.score, 4),
-                text_snippet=text[r.start : r.end],
+                text_snippet=snippet,
             )
         )
 

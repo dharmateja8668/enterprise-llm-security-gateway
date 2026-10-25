@@ -24,18 +24,40 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/auth", tags=["Authentication"])
 
 
+import hmac
+import secrets
+
+
 def hash_password(password: str) -> str:
-    """Return SHA-256 digest of plain password."""
-    return hashlib.sha256(password.encode("utf-8")).hexdigest()
+    """Return salted PBKDF2-HMAC-SHA256 hash formatted as pbkdf2:sha256:100000$<salt>$<hex_hash>."""
+    salt = secrets.token_hex(16)
+    dk = hashlib.pbkdf2_hmac("sha256", password.encode("utf-8"), salt.encode("utf-8"), 100_000)
+    return f"pbkdf2:sha256:100000${salt}${dk.hex()}"
 
 
 def verify_password(plain_password: str, hashed_password: str) -> bool:
-    """Verify password against plain or hashed string."""
+    """
+    Verify password using constant-time comparison against salted PBKDF2 or legacy SHA-256 digest.
+    Strictly rejects plaintext passwords.
+    """
     if not plain_password or not hashed_password:
         return False
-    if plain_password == hashed_password:
-        return True
-    return hash_password(plain_password) == hashed_password
+
+    # Modern salted PBKDF2 format
+    if hashed_password.startswith("pbkdf2:sha256:"):
+        parts = hashed_password.split("$")
+        if len(parts) == 3:
+            _, salt, expected_hex = parts
+            dk = hashlib.pbkdf2_hmac("sha256", plain_password.encode("utf-8"), salt.encode("utf-8"), 100_000)
+            return hmac.compare_digest(dk.hex(), expected_hex)
+
+    # Legacy SHA-256 hex digest (64 chars) support with constant-time comparison
+    if len(hashed_password) == 64 and all(c in "0123456789abcdefABCDEF" for c in hashed_password):
+        candidate_hex = hashlib.sha256(plain_password.encode("utf-8")).hexdigest()
+        return hmac.compare_digest(candidate_hex, hashed_password)
+
+    # Reject any plaintext or unrecognized format
+    return False
 
 
 ALLOWED_ORGANIZATION_DOMAIN = "zaalima.in"
