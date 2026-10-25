@@ -63,6 +63,7 @@ def _get_redis_client() -> redis.Redis:
 # Module-level client (created once per process, re-used across requests).
 # Tests replace this via monkeypatching or fakeredis injection.
 _redis_client: redis.Redis | None = None
+redis_client = _redis_client
 
 
 def get_redis() -> redis.Redis:

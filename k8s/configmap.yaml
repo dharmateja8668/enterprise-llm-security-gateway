@@ -1,0 +1,21 @@
+﻿apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: gateway-config
+  namespace: zaalima-gateway
+  labels:
+    app: security-gateway
+    app.kubernetes.io/name: enterprise-llm-security-gateway
+    app.kubernetes.io/component: gateway
+data:
+  OLLAMA_BASE_URL: "http://ollama-service:11434"
+  OLLAMA_MODEL: "llama3.2:3b"
+  POSTGRES_HOST: "postgres-service"
+  POSTGRES_PORT: "5432"
+  POSTGRES_DB: "gateway"
+  REDIS_URL: "redis://redis-service:6379"
+  RATE_LIMIT_FALLBACK_FAKEREDIS: "false"
+  PROMPT_INJECTION_ENABLED: "true"
+  PROMPT_INJECTION_THRESHOLD: "0.7"
+  CONTENT_SAFETY_ENABLED: "true"
+  CONTENT_SAFETY_THRESHOLD: "0.7"

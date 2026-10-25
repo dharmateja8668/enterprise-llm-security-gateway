@@ -1,4 +1,20 @@
 import os
+from unittest.mock import patch
+
+# ── IMPORTANT: Prevent load_dotenv() from loading .env during tests ────────
+# app.main calls load_dotenv() at import time, which reads .env and sets
+# POSTGRES_USER/PASSWORD. This causes db.py to construct a PostgreSQL URL
+# and create_all() tries to connect — which fails when PG credentials are
+# wrong. We patch load_dotenv to be a no-op and clear any POSTGRES vars
+# that may already exist in the environment, forcing the SQLite fallback.
+for _pg_var in ("POSTGRES_URL", "POSTGRES_USER", "POSTGRES_PASSWORD",
+                "POSTGRES_HOST", "POSTGRES_PORT", "POSTGRES_DB", "DATABASE_URL"):
+    os.environ.pop(_pg_var, None)
+
+# Patch load_dotenv BEFORE importing app.main so .env is never loaded
+_dotenv_patch = patch("dotenv.load_dotenv", return_value=None)
+_dotenv_patch.start()
+
 import pytest
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker

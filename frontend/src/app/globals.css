@@ -1,0 +1,101 @@
+@import "tailwindcss";
+
+@custom-variant dark (&:where(.dark, .dark *));
+
+@layer base {
+  :root {
+    --background: #0B0F19;
+    --foreground: #F3F4F6;
+  }
+
+  html.light {
+    --background: #F8FAFC;
+    --foreground: #0F172A;
+  }
+
+  body {
+    background-color: var(--background);
+    color: var(--foreground);
+    font-family: var(--font-jakarta), 'Plus Jakarta Sans', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    overflow-x: hidden;
+    transition: background-color 0.2s ease, color 0.2s ease;
+  }
+}
+
+/* Custom scrollbars */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+.dark ::-webkit-scrollbar-track, ::-webkit-scrollbar-track {
+  background: #111827;
+}
+.light ::-webkit-scrollbar-track {
+  background: #E2E8F0;
+}
+.dark ::-webkit-scrollbar-thumb, ::-webkit-scrollbar-thumb {
+  background: #374151;
+  border-radius: 4px;
+}
+.light ::-webkit-scrollbar-thumb {
+  background: #94A3B8;
+  border-radius: 4px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #4B5563;
+}
+
+/* Glassmorphism effects */
+.dark .glass-panel, .glass-panel {
+  background: rgba(17, 24, 39, 0.75);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.light .glass-panel {
+  background: rgba(255, 255, 255, 0.85);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border: 1px solid rgba(0, 0, 0, 0.08);
+}
+
+.dark .glass-card, .glass-card {
+  background: rgba(31, 41, 55, 0.5);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.light .glass-card {
+  background: rgba(241, 245, 249, 0.8);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  border: 1px solid rgba(0, 0, 0, 0.06);
+}
+
+/* Glow effects */
+.glow-cyan {
+  box-shadow: 0 0 20px -5px rgba(6, 182, 212, 0.3);
+}
+
+.glow-emerald {
+  box-shadow: 0 0 20px -5px rgba(16, 185, 129, 0.3);
+}
+
+.glow-amber {
+  box-shadow: 0 0 20px -5px rgba(245, 158, 11, 0.3);
+}
+
+.glow-red {
+  box-shadow: 0 0 20px -5px rgba(239, 68, 68, 0.3);
+}
+
+@keyframes pulse-slow {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.6; transform: scale(0.96); }
+}
+
+.animate-pulse-slow {
+  animation: pulse-slow 3s infinite ease-in-out;
+}

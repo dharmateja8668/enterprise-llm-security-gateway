@@ -11,3 +11,16 @@ env/
 
 gateway.db
 openapi.json
+
+# Logs & test artifacts
+*.log
+logs/
+.pytest_cache/
+scratch/
+pytest_output.txt
+e2e_results.log
+test_run.log
+
+# Windows binaries and installers
+*.exe
+Docker Desktop Installer.exe

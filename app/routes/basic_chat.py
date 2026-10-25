@@ -2,26 +2,36 @@
 app/routes/basic_chat.py
 POST /chat — The primary gateway chat endpoint.
 
-Security flow (Day 1–6):
-  1. Authentication     — verify_api_key()       → 401 if missing/invalid
-  2. Rate Limiting      — check_rate_limit()     → 429 if over 10 req/min
-  3. PII/PHI Redaction  — (planned: Presidio)    → strips PII before LLM sees it
-  4. Injection Detection— (planned: Rebuff)      → rejects malicious prompts
-  5. Ollama LLM         — OllamaProvider.chat()  → real model response
-  6. Content Safety     — (planned)              → screens response
-  7. Audit Logging      — (planned: PostgreSQL)  → records interaction
+Security flow (Day 1–6 + Week 2 + Week 3 Day 1):
+  1. Authentication      — verify_api_key()           → 401 if missing/invalid
+  2. Rate Limiting       — check_rate_limit()         → 429 if over 10 req/min
+  3. PII Detection       — analyze_pii()              → detects PII
+  4. PII/PHI Anonymization — anonymize()              → strips PII before LLM sees it
+  5. Prompt Injection    — check_prompt_injection()   → 403 if injection detected
+  6. Ollama LLM          — OllamaProvider.chat()      → real model response
+  7. Content Safety      — (planned)                  → screens response
+  8. Deanonymization     — deanonymize()              → restores PII placeholders
+  9. Audit Logging       — PostgreSQL                 → records interaction
 """
+
+import logging
+from typing import List, Optional
 
 from fastapi import APIRouter, HTTPException, Depends, Security
 from fastapi.security import HTTPBearer
 from pydantic import BaseModel
 from app.security.auth import verify_api_key
 from app.security.rate_limiter import check_rate_limit
+from app.security.prompt_injection import check_prompt_injection
 from app.providers.ollama import OllamaProvider
+from app.services.pii_analyzer import analyze_pii, summarize_pii
+from app.services.pii_anonymizer import anonymize, deanonymize
 from sqlalchemy.orm import Session
 from app.models.log import RequestLog
 from app.db import get_db
 import hashlib
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(tags=["Chat"], dependencies=[Security(HTTPBearer(auto_error=False))])
 
@@ -56,12 +66,25 @@ def _token_identifier(token: str) -> str:
 
 class SimpleChatRequest(BaseModel):
     prompt: str
+    user_id: Optional[str] = None
+    chat_id: Optional[str] = None
+    model: Optional[str] = None
+    provider: Optional[str] = None
+
+
+class PIISummary(BaseModel):
+    """Summary of PII entities detected in the prompt (Week 2, Day 1)."""
+    pii_detected: bool
+    count: int
+    entity_types: List[str]
 
 
 class SimpleChatResponse(BaseModel):
     success: bool
     response: str
     model: str
+    chat_id: Optional[str] = None
+    pii_summary: Optional[PIISummary] = None
 
 
 @router.post("/chat", response_model=SimpleChatResponse)
@@ -70,12 +93,25 @@ async def chat_endpoint(
     user_token: str = Depends(verify_api_key), db: Session = Depends(get_db),
 ):
     """
-    POST /chat — authenticated, rate-limited gateway to the internal Ollama LLM.
+    POST /chat — authenticated, rate-limited gateway to LLM providers (Ollama / OpenAI / Anthropic).
 
     Full request flow:
-      User → FastAPI → Auth (Day 4) → Rate Limit (Day 5) → Ollama (Day 6) → User
+      User → FastAPI → Auth (Day 4) → Rate Limit (Day 5)
+      → Chat Thread Ownership & Persistence
+      → RBAC Model Permission Check (Week 4)
+      → PII Detection & Anonymization (Week 2)
+      → Prompt Injection Check (Week 3)
+      → LLM Egress (Day 6 / Provider Factory)
+      → Response Content Safety Check (Week 3)
+      → PII Deanonymization (Week 2)
+      → PostgreSQL Audit Logging → Client
     """
     ollama = _get_ollama()
+    target_provider = (request.provider or "ollama").lower()
+    target_model = request.model if request.model else ollama.model
+
+    # Extract the user from the request or fallback to hashed token
+    actual_user = request.user_id if request.user_id else _token_identifier(user_token)
     
     # ── Day 4: Authentication (enforced by Depends above) ──────────────────
     # verify_api_key() already ran; user_token holds the validated token.
@@ -87,46 +123,258 @@ async def chat_endpoint(
     if not request.prompt or not request.prompt.strip():
         raise HTTPException(status_code=400, detail="Prompt cannot be empty")
 
-    # ── Day 6b (placeholder): PII/PHI Redaction via Microsoft Presidio ──────
-    # safe_prompt = presidio_redact(request.prompt)   # <── Day 7 will add this
-    safe_prompt = request.prompt
+    # ── Chat Thread Ownership Verification & Persistence ───────────────────
+    from app.models.chat_session import ChatThread, ChatMessageRecord
+    import json
 
-    # ── Day 6c (placeholder): Prompt Injection Detection via Rebuff ─────────
-    # check_injection(safe_prompt)                    # <── Day 7 will add this
+    thread = None
+    if request.chat_id:
+        thread = db.query(ChatThread).filter(ChatThread.id == request.chat_id).first()
+        if thread and thread.user_id != actual_user:
+            logger.warning("User %s attempted to send prompt to thread owned by %s", actual_user, thread.user_id)
+            raise HTTPException(
+                status_code=403,
+                detail={
+                    "error": "Access Denied: You do not own this chat thread",
+                    "blocked": True,
+                    "reason": "chat_owner_mismatch"
+                }
+            )
 
-    # ── Day 6: Internal LLM (Ollama) ────────────────────────────────────────
+    if not thread:
+        import uuid as _uuid
+        thread_id = request.chat_id if request.chat_id else str(_uuid.uuid4())
+        thread = ChatThread(
+            id=thread_id,
+            user_id=actual_user,
+            title=request.prompt[:32] + ("..." if len(request.prompt) > 32 else "")
+        )
+        db.add(thread)
+        db.commit()
+
+    # Save User prompt message record
+    user_msg_rec = ChatMessageRecord(
+        chat_id=thread.id,
+        user_id=actual_user,
+        role="user",
+        content=request.prompt
+    )
+    db.add(user_msg_rec)
+    db.commit()
+
+    # ── Week 4: RBAC Policy Verification ─────────────────────────────────────
+    from app.security.rbac import check_rbac_access
+    if not check_rbac_access(db, actual_user, target_model):
+        logger.warning(
+            "RBAC access denied for user=%s model=%s prompt=%s",
+            actual_user,
+            target_model,
+            request.prompt[:30],
+        )
+        try:
+            import uuid as _uuid
+            _blocked_log = RequestLog(
+                request_id=str(_uuid.uuid4()),
+                user_token=actual_user,
+                provider=target_provider,
+                model=target_model,
+                prompt="[REDACTED — RBAC blocked]",
+                status="rbac_blocked",
+            )
+            db.add(_blocked_log)
+            db.commit()
+        except Exception as _db_err:
+            logger.error("Failed to write RBAC audit log: %s", _db_err)
+            db.rollback()
+
+        raise HTTPException(
+            status_code=403,
+            detail={
+                "error": "AI model access denied",
+                "blocked": True,
+                "reason": "rbac_model_access_denied",
+            },
+        )
+
+    # ── Week 2 Day 1: PII Detection (detection & summary) ─────────────────
     try:
-        response_text = await ollama.chat(safe_prompt)
+        import asyncio
+        pii_entities = await asyncio.to_thread(analyze_pii, request.prompt, score_threshold=0.0)
+        pii_summary_data = await asyncio.to_thread(summarize_pii, pii_entities)
+        pii_summary = PIISummary(**pii_summary_data)
+
+        if pii_summary.pii_detected:
+            logger.warning(
+                "PII detected in prompt: %d entit(ies), types=%s",
+                pii_summary.count,
+                pii_summary.entity_types,
+            )
+
+        # ── Week 2 Day 4–6: PII/PHI Anonymization via Presidio ──────────────
+        safe_prompt, pii_mapping = await asyncio.to_thread(anonymize, request.prompt)
+    except HTTPException:
+        raise
+    except Exception as scan_err:
+        logger.error("Security scanning failed; rejecting request for safety: %s", scan_err)
+        raise HTTPException(
+            status_code=500,
+            detail="Security scanning failed; request rejected for safety",
+        )
+
+    # ── Week 3 Day 1: Prompt Injection Detection ─────────────────────────────
+    # Run injection detection with PII-awareness flag to prevent ML false positives on benign PII prompts
+    has_pii = bool(pii_summary and pii_summary.pii_detected)
+    injection_result = await asyncio.to_thread(check_prompt_injection, request.prompt, has_pii=has_pii)
+    if injection_result.is_injection:
+        logger.warning(
+            "Prompt injection blocked: method=%s risk_score=%.3f reason=%s "
+            "user_token_hash=%s",
+            injection_result.detection_method,
+            injection_result.risk_score,
+            injection_result.reason,
+            _token_identifier(user_token),
+        )
+        # Log blocked attempt to audit DB before raising.
+        try:
+            import uuid as _uuid, time as _time
+            import asyncio
+            _blocked_id = str(_uuid.uuid4())
+            _blocked_log = RequestLog(
+                request_id=_blocked_id,
+                user_token=actual_user,
+                provider=target_provider,
+                model=target_model,
+                prompt="[REDACTED — injection blocked]",
+                status="injection_blocked",
+            )
+            db.add(_blocked_log)
+            db.commit()
+        except Exception as _db_err:
+            logger.error("Failed to write injection-blocked audit log: %s", _db_err)
+            db.rollback()
+        raise HTTPException(
+            status_code=403,
+            detail={
+                "error": "Prompt injection detected",
+                "blocked": True,
+                "reason": injection_result.reason,
+                "detection_method": injection_result.detection_method,
+            },
+        )
+
+    import time
+    import uuid
+
+    start_time = time.time()
+    req_id = str(uuid.uuid4())
+
+    # ── Day 6 & Week 1: Provider-Abstracted LLM Routing ────────────────────
+    try:
+        if target_provider == "ollama" and not request.model:
+            response_text = await ollama.chat(safe_prompt)
+        else:
+            from app.providers.factory import ProviderFactory
+            from app.models.schemas import ChatRequest, Message
+            provider_inst = ProviderFactory.get_provider(target_provider)
+            chat_req = ChatRequest(
+                messages=[Message(role="user", content=safe_prompt)],
+                model=target_model,
+                provider=target_provider
+            )
+            chat_resp = await provider_inst.chat_completions(chat_req)
+            if chat_resp and chat_resp.choices:
+                choice = chat_resp.choices[0]
+                if isinstance(choice, dict):
+                    response_text = choice.get("message", {}).get("content", "")
+                else:
+                    response_text = choice.message.content
+            else:
+                response_text = ""
+        status = "success"
+        status_code = 200
+        error_msg = None
     except Exception as e:
-        # Log the failure before returning the error to the user
+        response_text = None
+        status = "error"
+        status_code = getattr(e, "status_code", 500)
+        error_msg = str(e)
+
+    latency_ms = int((time.time() - start_time) * 1000)
+
+    # ── Audit Logging via PostgreSQL ────────────────────────────────────────
+    try:
         log_entry = RequestLog(
-            user_token=_token_identifier(user_token),
-            provider="ollama",
-            model=ollama.model,
-            prompt=request.prompt,
-            status="error",
+            request_id=req_id,
+            user_token=actual_user,
+            provider=target_provider,
+            model=target_model,
+            prompt=safe_prompt,
+            status=status,
         )
         db.add(log_entry)
         db.commit()
-        raise
+    except Exception as db_err:
+        logger.error(f"Failed to write audit log to database: {db_err}")
+        db.rollback()
 
-    # ── Day 6d (placeholder): Response Content Safety ───────────────────────
-    # response_text = safety_screen(response_text)   # <── Day 7 will add this
+    if status == "error":
+        raise HTTPException(status_code=status_code, detail=error_msg)
 
-    # ── Day 6e (placeholder): Audit Logging via PostgreSQL ──────────────────
-    # Log request and response to PostgreSQL
-    log_entry = RequestLog(
-        user_token=_token_identifier(user_token),
-        provider="ollama",
-        model=ollama.model,
-        prompt=request.prompt,
-        status="success",
-    )
-    db.add(log_entry)
-    db.commit()
+    # ── Week 3 Day 3: Response Content Safety ──────────────────────────────
+    if response_text is not None:
+        from app.security.content_safety import check_content_safety
+        import asyncio
+        safety_result = await asyncio.to_thread(check_content_safety, response_text)
+        if not safety_result.safe:
+            logger.warning(f"Content safety blocked response: {safety_result.category}")
+            # Log blocked attempt to audit DB
+            try:
+                import uuid as _uuid, time as _time
+                _blocked_log = RequestLog(
+                    request_id=str(_uuid.uuid4()),
+                    user_token=actual_user,
+                    provider="ollama",
+                    model=_get_ollama().model,
+                    prompt="[REDACTED — request prompted unsafe response]",
+                    status="content_safety_blocked",
+                )
+                db.add(_blocked_log)
+                db.commit()
+            except Exception as _db_err:
+                logger.error("Failed to write content safety audit log: %s", _db_err)
+                db.rollback()
+            
+            raise HTTPException(
+                status_code=403,
+                detail={
+                    "error": "Response blocked by content safety policy",
+                    "category": safety_result.category
+                }
+            )
+
+    # ── Week 2 Day 6: Deanonymization ───────────────────────────────────────
+    if response_text is not None:
+        final_response = deanonymize(response_text, pii_mapping)
+    else:
+        final_response = None
+
+    if final_response is not None:
+        pii_json = json.dumps(pii_summary_data) if pii_summary_data else None
+        ai_msg_rec = ChatMessageRecord(
+            chat_id=thread.id,
+            user_id=actual_user,
+            role="assistant",
+            content=final_response,
+            model=target_model,
+            pii_summary_json=pii_json
+        )
+        db.add(ai_msg_rec)
+        db.commit()
 
     return SimpleChatResponse(
         success=True,
-        response=response_text,
-        model=ollama.model,
+        response=final_response,
+        model=target_model,
+        chat_id=thread.id,
+        pii_summary=pii_summary,
     )

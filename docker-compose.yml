@@ -1,0 +1,84 @@
+services:
+  # ── FastAPI Enterprise LLM Security Gateway ────────────────────────────────
+  gateway:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: zaalima_llm_security_gateway
+    restart: unless-stopped
+    ports:
+      - "8081:8081"
+    environment:
+      - GATEWAY_API_KEY=${GATEWAY_API_KEY:-dev-gateway-key-llama3}
+      - OLLAMA_BASE_URL=${OLLAMA_BASE_URL:-http://host.docker.internal:11434}
+      - OLLAMA_MODEL=${OLLAMA_MODEL:-llama3.2:3b}
+      - REDIS_URL=redis://redis:6379
+      - RATE_LIMIT_FALLBACK_FAKEREDIS=false
+      - POSTGRES_USER=${POSTGRES_USER:-dev_user}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-your-secure-postgres-password}
+      - POSTGRES_HOST=postgres
+      - POSTGRES_PORT=5432
+      - POSTGRES_DB=${POSTGRES_DB:-gateway}
+      - PROMPT_INJECTION_ENABLED=true
+      - PROMPT_INJECTION_THRESHOLD=0.7
+      - CONTENT_SAFETY_ENABLED=true
+      - CONTENT_SAFETY_THRESHOLD=0.7
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:8081/health || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+    networks:
+      - gateway_network
+
+  # ── PostgreSQL Database ───────────────────────────────────────────────────
+  postgres:
+    image: postgres:15-alpine
+    container_name: zaalima_postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-dev_user}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-your-secure-postgres-password}
+      POSTGRES_DB: ${POSTGRES_DB:-gateway}
+    ports:
+      - "127.0.0.1:5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-dev_user} -d ${POSTGRES_DB:-gateway}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - gateway_network
+
+  # ── Redis Cache & Rate Limiter ────────────────────────────────────────────
+  redis:
+    image: redis:7-alpine
+    container_name: zaalima_redis
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:6379:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD-SHELL", "redis-cli ping | grep PONG"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - gateway_network
+
+networks:
+  gateway_network:
+    driver: bridge
+
+volumes:
+  postgres_data:
+  redis_data:
