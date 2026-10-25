@@ -94,20 +94,26 @@ class ContextPersonRecognizer(EntityRecognizer):
             supported_entities=["PERSON"],
             name="ContextPersonRecognizer"
         )
-        self.prefix_pattern = re.compile(
-            r"(?i)\b(?:my\s+name\s+is|name\s+is|i\s+am|this\s+is|call\s+me|name\s*:\s*|"
-            r"hello|hi|hey|dear|welcome|mention|greet|"
-            r"(?<!team\s)\blead(?:\s+developer)?\s+|colleague\s+is|candidate\s+name\s+is|applicant\s+name\s+is|"
-            r"confidential\s*:\s*|private\s*:\s*|user(?:\s+said)?\s*[:\s\(\[\"']+)\s*([A-Z][a-z]{1,25})\b"
+        self.explicit_identity_pattern = re.compile(
+            r"(?i:\b(?:my\s+name\s+is|name\s+is|i\s+am|this\s+is|call\s+me|name\s*:\s*|"
+            r"colleague\s+is|candidate\s+name\s+is|applicant\s+name\s+is|"
+            r"confidential\s*:\s*|private\s*:\s*)\s*)([a-zA-Z]{2,25})\b"
+        )
+        self.salutation_role_pattern = re.compile(
+            r"(?i:\b(?:hello|hi|hey|dear|welcome|"
+            r"(?<!team\s)\blead(?:\s+developer)?)\b)(?:\s*[:\(\[\"']+\s*|\s+)([A-Z][a-z]{1,25})\b"
+        )
+        self.speaker_pattern = re.compile(
+            r"(?i:\buser(?:\s+said)?\s*[:\s\(\[\"']+)([a-zA-Z]{2,25})\b"
         )
         self.action_pattern = re.compile(
-            r"\b([A-Z][a-z]{1,25})\s+(?:contacted|told|needs|sent|emailed|called|asked|reported|submitted|scheduled)\b"
+            r"\b([A-Z][a-z]{1,25})\s+(?i:(?:contacted|told|needs|sent|emailed|called|asked|reported|submitted|scheduled))\b"
         )
         self.role_subject_pattern = re.compile(
-            r"\b([A-Z][a-z]{1,25})\s+is\s+the\s+(?:team\s+)?(?:lead|leader|manager|developer|engineer|analyst|author|owner|contact)\b"
+            r"\b([A-Z][a-z]{1,25})\s+(?i:is\s+the\s+(?:team\s+)?(?:lead|leader|manager|developer|engineer|analyst|author|owner|contact))\b"
         )
         self.metadata_assoc_pattern = re.compile(
-            r"\b([A-Z][a-z]{1,25})\s*\((?:email|contact|card|phone|ssn):|\b([A-Z][a-z]{1,25})'s\s+email\b"
+            r"\b([A-Z][a-z]{1,25})\s*(?i:\((?:email|contact|card|phone|ssn):)|\b([A-Z][a-z]{1,25})'(?i:s\s+email)\b"
         )
 
     def load(self) -> None:
@@ -126,7 +132,9 @@ class ContextPersonRecognizer(EntityRecognizer):
             "name", "email", "card", "phone", "project", "user", "client", "customer",
             "candidate", "applicant", "employee", "lead", "leader", "team", "er", "is",
             "are", "was", "were", "and", "or", "in", "on", "at", "to", "for", "with",
-            "my", "your", "his", "her", "our", "their", "primary", "secondary"
+            "my", "your", "his", "her", "our", "their", "primary", "secondary",
+            "write", "greeting", "introduction", "message", "reply", "response", "note", "letter", "draft",
+            "prompt", "instructions", "system", "now", "here"
         }
 
         def add_match(start: int, end: int, token: str, score: float = 0.85):
@@ -144,8 +152,16 @@ class ContextPersonRecognizer(EntityRecognizer):
                     )
                 )
 
-        # 1. Match prefix context
-        for match in self.prefix_pattern.finditer(text):
+        # 1. Match explicit self-identity patterns (e.g. My name is dharma)
+        for match in self.explicit_identity_pattern.finditer(text):
+            add_match(match.start(1), match.end(1), match.group(1), 0.85)
+
+        # 1b. Match salutation and role patterns (e.g. Hello Alice, Lead Developer Rahul)
+        for match in self.salutation_role_pattern.finditer(text):
+            add_match(match.start(1), match.end(1), match.group(1), 0.85)
+
+        # 1c. Match speaker context (e.g. User said: ("Rahul"))
+        for match in self.speaker_pattern.finditer(text):
             add_match(match.start(1), match.end(1), match.group(1), 0.85)
 
         # 2. Match action verb context

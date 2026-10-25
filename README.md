@@ -40,7 +40,9 @@ FastAPI Security Gateway (Port 8081)
          |
          +---> 5. Heuristic & DeBERTa-v3 ML Prompt Injection Scanner
          |
-         v (Sanitized, Safe Prompt with zero raw PII)
+         +---> 5b. Redis Response Cache Check (<5ms lookup for identical sanitized queries)
+         |
+         v (Sanitized, Safe Prompt with zero raw PII — on cache miss)
 LLM Provider Layer (Ollama llama3.2:3b / OpenAI / Anthropic)
          |
          v (Raw LLM Completion)
@@ -67,6 +69,7 @@ Client Application Receives Restored Response
 5. **Dual Heuristic & Local ML Prompt Injection Defense**: Heuristic syntax matching combined with a local HuggingFace DeBERTa-v3 prompt injection detection classifier (`protectai/deberta-v3-base-prompt-injection-v2`).
 6. **Response Content Safety**: Automated screening of model responses for policy compliance, confidential leakages, and unsafe tokens.
 7. **Tamper-Evident Audit Logging**: PostgreSQL audit store capturing token hashes (SHA-256), timestamps, sanitized prompts, detected entity types, and execution latencies.
+8. **Redis LLM Response Caching**: Deterministic SHA-256 exact response caching for sanitized prompts in Redis with configurable TTL (default 1 hour). Prevents redundant LLM compute and latency (<5ms cache hits) while guaranteeing zero raw PII storage.
 
 ---
 
@@ -77,7 +80,7 @@ Client Application Receives Restored Response
 * **NLP & PII Detection**: Microsoft Presidio Analyzer (`presidio-analyzer`), Microsoft Presidio Anonymizer (`presidio-anonymizer`), spaCy (`en_core_web_sm`)
 * **Adversarial Detection**: Transformers, PyTorch, DeBERTa-v3 prompt-injection model
 * **Database & ORM**: PostgreSQL 15, SQLAlchemy 2.0, Alembic migrations, SQLite fallback
-* **Caching & Rate Limiting**: Redis 7, FakeRedis
+* **Caching & Rate Limiting**: Redis 7 (LLM Response Cache & Token-Bucket Rate Limiter), FakeRedis
 * **Containerization**: Docker, Docker Compose
 * **Orchestration**: Kubernetes (Deployments, Services, ConfigMaps, Secrets, PVCs)
 * **Autoscaling**: Kubernetes Horizontal Pod Autoscaler (`autoscaling/v2`)
@@ -460,9 +463,14 @@ For the Kubernetes Horizontal Pod Autoscaler to observe CPU and memory consumpti
 
 ## 19. Testing Instructions
 
-### Run the Complete Automated Test Suite (296 Tests)
+### Run the Complete Automated Test Suite (306 Tests)
 ```powershell
 .\venv\Scripts\pytest -v
+```
+
+### Run Redis LLM Response Caching Tests
+```powershell
+.\venv\Scripts\pytest tests/test_response_cache.py -v
 ```
 
 ### Run Static Deployment & Manifest Verification Tests

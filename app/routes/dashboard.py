@@ -1,6 +1,6 @@
 from typing import Optional
 import uuid
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from fastapi import APIRouter, Depends, Query, Header, HTTPException, status
 from sqlalchemy.orm import Session
 from sqlalchemy import func, desc, or_
@@ -119,7 +119,7 @@ router = APIRouter(prefix="/dashboard", tags=["Dashboard"], dependencies=[Depend
 BLOCKED_STATUSES = ["injection_blocked", "content_safety_blocked", "rbac_blocked"]
 
 def get_time_filter(time_range: str):
-    now = datetime.utcnow()
+    now = datetime.now(timezone.utc).replace(tzinfo=None)
     if time_range == "24h":
         return now - timedelta(hours=24)
     elif time_range == "30d":
@@ -128,7 +128,7 @@ def get_time_filter(time_range: str):
         return now - timedelta(days=7)
 
 def get_previous_time_filter(time_range: str):
-    now = datetime.utcnow()
+    now = datetime.now(timezone.utc).replace(tzinfo=None)
     if time_range == "24h":
         return now - timedelta(hours=48), now - timedelta(hours=24)
     elif time_range == "30d":
@@ -187,7 +187,7 @@ def delete_all_logs(
             status="success",
             status_code=200,
             latency_ms=0,
-            created_at=datetime.utcnow()
+            created_at=datetime.now(timezone.utc).replace(tzinfo=None)
         )
         db.add(audit_entry)
         db.commit()
@@ -275,7 +275,7 @@ def delete_individual_log(
         status="success",
         status_code=200,
         latency_ms=0,
-        created_at=datetime.utcnow()
+        created_at=datetime.now(timezone.utc).replace(tzinfo=None)
     )
     db.add(audit_entry)
     db.commit()
@@ -300,7 +300,10 @@ def get_metrics(db: Session = Depends(get_db), time_range: str = Query("7d")):
     error_req = req_query.filter(RequestLog.status == "error").count()
     
     # Active users count
-    active_users = req_query.filter(RequestLog.user_token.isnot(None)).distinct(RequestLog.user_token).count()
+    active_users = db.query(func.count(func.distinct(RequestLog.user_token))).filter(
+        RequestLog.timestamp >= cutoff,
+        RequestLog.user_token.isnot(None)
+    ).scalar() or 0
     
     # Previous period
     prev_req_query = db.query(RequestLog).filter(RequestLog.timestamp >= prev_cutoff_start, RequestLog.timestamp < prev_cutoff_end)
@@ -332,7 +335,7 @@ def get_usage(db: Session = Depends(get_db), time_range: str = Query("7d")):
     
     usage_data = {}
     
-    now = datetime.utcnow()
+    now = datetime.now(timezone.utc).replace(tzinfo=None)
     if time_range == "24h":
         for i in range(24):
             hour = (now - timedelta(hours=i)).strftime("%Y-%m-%d %H:00")

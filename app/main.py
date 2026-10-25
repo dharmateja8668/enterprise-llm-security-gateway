@@ -17,6 +17,18 @@ from app.routes.dashboard import router as dashboard_router
 from app.providers.ollama import OllamaProvider
 from app.security.rbac import init_default_rbac_policies
 
+from contextlib import asynccontextmanager
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """Lifespan event handler initializing default RBAC policies."""
+    db = SessionLocal()
+    try:
+        init_default_rbac_policies(db)
+    finally:
+        db.close()
+    yield
+
 app = FastAPI(
     title="Enterprise LLM Security Gateway",
     description=(
@@ -27,6 +39,7 @@ app = FastAPI(
         "**Quick start:** Send `Authorization: Bearer <GATEWAY_API_KEY>` with every request."
     ),
     version="1.0.0",
+    lifespan=lifespan,
 )
 
 import os
@@ -46,14 +59,6 @@ app.add_middleware(
 
 # Create database tables if they don't exist
 Base.metadata.create_all(bind=engine)
-
-@app.on_event("startup")
-def startup_event():
-    db = SessionLocal()
-    try:
-        init_default_rbac_policies(db)
-    finally:
-        db.close()
 
 @app.get("/", tags=["Health"])
 async def root():

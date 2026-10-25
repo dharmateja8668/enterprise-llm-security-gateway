@@ -427,3 +427,32 @@ def test_25_empty_response():
     )
     assert resp.status_code == 500
     assert "empty response" in resp.json()["detail"].lower()
+
+
+def test_26_concurrent_anonymization_requests():
+    """Test 26 — Verify that concurrent requests do not cross-contaminate mappings or placeholders."""
+    from concurrent.futures import ThreadPoolExecutor
+
+    test_cases = [
+        ("User Alice with email alice@example.com and SSN 111-22-3333", "Alice", "alice@example.com"),
+        ("User Bob with email bob@example.com and SSN 222-33-4444", "Bob", "bob@example.com"),
+        ("User Charlie with email charlie@example.com and SSN 333-44-5555", "Charlie", "charlie@example.com"),
+        ("User David with email david@example.com and SSN 444-55-6666", "David", "david@example.com"),
+        ("User Eve with email eve@example.com and SSN 555-66-7777", "Eve", "eve@example.com"),
+    ]
+
+    def process_case(case):
+        raw_text, expected_name, expected_email = case
+        anon, mapping = anonymize(raw_text)
+        assert expected_name not in anon
+        assert expected_email not in anon
+        # Verify placeholders match this thread's entities exclusively
+        restored = deanonymize(anon, mapping)
+        assert restored == raw_text
+        return True
+
+    with ThreadPoolExecutor(max_workers=5) as executor:
+        results = list(executor.map(process_case, test_cases))
+
+    assert all(results)
+    assert len(results) == 5

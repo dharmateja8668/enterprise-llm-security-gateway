@@ -37,6 +37,7 @@ async def create_chat_completion(request: ChatRequest, db: Session = Depends(get
     try:
         response = await provider.chat_completions(request)
         latency_ms = int((time.monotonic() - start_time) * 1000)
+
         audit_record = AuditLog(
             request_id=request_id,
             user_id=getattr(request, "user_id", None),

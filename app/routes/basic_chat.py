@@ -268,36 +268,65 @@ async def chat_endpoint(
     start_time = time.time()
     req_id = str(uuid.uuid4())
 
-    # ── Day 6 & Week 1: Provider-Abstracted LLM Routing ────────────────────
-    try:
-        if target_provider == "ollama" and not request.model:
-            response_text = await ollama.chat(safe_prompt)
-        else:
-            from app.providers.factory import ProviderFactory
-            from app.models.schemas import ChatRequest, Message
-            provider_inst = ProviderFactory.get_provider(target_provider)
-            chat_req = ChatRequest(
-                messages=[Message(role="user", content=safe_prompt)],
-                model=target_model,
-                provider=target_provider
-            )
-            chat_resp = await provider_inst.chat_completions(chat_req)
-            if chat_resp and chat_resp.choices:
-                choice = chat_resp.choices[0]
-                if isinstance(choice, dict):
-                    response_text = choice.get("message", {}).get("content", "")
-                else:
-                    response_text = choice.message.content
-            else:
-                response_text = ""
+    # ── Redis Response Caching (Sanitized prompt lookup with strict user-isolation) ──
+    # CRITICAL APPSEC INVARIANTS:
+    # 1. Never cache prompts where PII was detected (Zero-PII cache invariant).
+    # 2. Always scope cache keys to actual_user to prevent cross-tenant/cross-user data leakage.
+    # 3. Cache lookup occurs AFTER prompt-injection and RBAC checks, preventing bypass.
+    from app.security.cache import get_cached_response, set_cached_response
+    cached_text = None
+    if not pii_summary.pii_detected:
+        cached_text = get_cached_response(
+            target_provider,
+            target_model,
+            safe_prompt,
+            user_scope=actual_user,
+        )
+
+    if cached_text is not None:
+        response_text = cached_text
         status = "success"
         status_code = 200
         error_msg = None
-    except Exception as e:
-        response_text = None
-        status = "error"
-        status_code = getattr(e, "status_code", 500)
-        error_msg = str(e)
+    else:
+        # ── Day 6 & Week 1: Provider-Abstracted LLM Routing ────────────────────
+        try:
+            if target_provider == "ollama" and not request.model:
+                response_text = await ollama.chat(safe_prompt)
+            else:
+                from app.providers.factory import ProviderFactory
+                from app.models.schemas import ChatRequest, Message
+                provider_inst = ProviderFactory.get_provider(target_provider)
+                chat_req = ChatRequest(
+                    messages=[Message(role="user", content=safe_prompt)],
+                    model=target_model,
+                    provider=target_provider
+                )
+                chat_resp = await provider_inst.chat_completions(chat_req)
+                if chat_resp and chat_resp.choices:
+                    choice = chat_resp.choices[0]
+                    if isinstance(choice, dict):
+                        response_text = choice.get("message", {}).get("content", "")
+                    else:
+                        response_text = choice.message.content
+                else:
+                    response_text = ""
+            status = "success"
+            status_code = 200
+            error_msg = None
+            if response_text and not pii_summary.pii_detected:
+                set_cached_response(
+                    target_provider,
+                    target_model,
+                    safe_prompt,
+                    response_text,
+                    user_scope=actual_user,
+                )
+        except Exception as e:
+            response_text = None
+            status = "error"
+            status_code = getattr(e, "status_code", 500)
+            error_msg = str(e)
 
     latency_ms = int((time.time() - start_time) * 1000)
 
