@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState } from 'react';
-import { ShieldCheck, Lock, User, AlertCircle, ArrowRight, Loader2, Sparkles, Eye, EyeOff } from 'lucide-react';
+import { ShieldCheck, Lock, User, AlertCircle, ArrowRight, Loader2, Eye, EyeOff } from 'lucide-react';
 import { loginToGateway } from '../lib/api';
 import { GatewayAuth } from '../lib/types';
 import { ThemeToggle } from './ThemeToggle';
@@ -38,12 +38,6 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess }) => {
     } else {
       setErrorMsg(response.message || 'Invalid credentials or unauthorized access');
     }
-  };
-
-  const quickFillAccount = (id: string, pass: string) => {
-    setIdentifier(id);
-    setPassword(pass);
-    setErrorMsg('');
   };
 
   return (
@@ -103,7 +97,7 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess }) => {
                 type="text"
                 value={identifier}
                 onChange={(e) => setIdentifier(e.target.value)}
-                placeholder="e.g. employee@zaalima.in or admin@zaalima.in"
+                placeholder="name@zaalima.in or username"
                 className="w-full px-4 py-3 rounded-xl bg-slate-50 dark:bg-slate-950/90 border border-slate-300 dark:border-slate-800 text-xs text-slate-900 dark:text-white placeholder-slate-400 dark:placeholder-slate-600 focus:outline-none focus:border-cyan-500 focus:ring-1 focus:ring-cyan-500 transition-all font-sans"
                 required
               />
@@ -162,51 +156,6 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess }) => {
               )}
             </button>
           </form>
-
-          {/* Quick Fill Test Accounts */}
-          <div className="pt-3 border-t border-slate-200 dark:border-slate-800/80 space-y-2.5">
-            <p className="text-[11px] font-semibold text-slate-500 dark:text-slate-400 flex items-center gap-1">
-              <Sparkles className="w-3 h-3 text-cyan-600 dark:text-cyan-400" /> Test Demo Accounts (Click to Fill):
-            </p>
-
-            <div className="grid grid-cols-2 gap-2 text-[11px]">
-              <button
-                type="button"
-                onClick={() => quickFillAccount('employee@zaalima.in', 'Employee@123')}
-                className="p-2 rounded-xl bg-slate-50 dark:bg-slate-950 hover:bg-slate-100 dark:hover:bg-slate-800/90 border border-slate-200 dark:border-slate-800 text-left transition-all group cursor-pointer"
-              >
-                <p className="font-semibold text-slate-800 dark:text-slate-200 group-hover:text-cyan-600 dark:group-hover:text-cyan-400">👤 Employee</p>
-                <p className="text-[10px] text-slate-500 dark:text-slate-500">Engineering Dept</p>
-              </button>
-
-              <button
-                type="button"
-                onClick={() => quickFillAccount('finance@zaalima.in', 'Finance@123')}
-                className="p-2 rounded-xl bg-slate-50 dark:bg-slate-950 hover:bg-slate-100 dark:hover:bg-slate-800/90 border border-slate-200 dark:border-slate-800 text-left transition-all group cursor-pointer"
-              >
-                <p className="font-semibold text-slate-800 dark:text-slate-200 group-hover:text-cyan-600 dark:group-hover:text-cyan-400">💼 Finance User</p>
-                <p className="text-[10px] text-slate-500 dark:text-slate-500">Finance Dept</p>
-              </button>
-
-              <button
-                type="button"
-                onClick={() => quickFillAccount('analyst@zaalima.in', 'Analyst@123')}
-                className="p-2 rounded-xl bg-cyan-50 dark:bg-cyan-950/40 hover:bg-cyan-100 dark:hover:bg-cyan-900/50 border border-cyan-200 dark:border-cyan-800/50 text-left transition-all group cursor-pointer"
-              >
-                <p className="font-semibold text-cyan-800 dark:text-cyan-300 group-hover:text-cyan-900 dark:group-hover:text-cyan-200">🛡️ Security Analyst</p>
-                <p className="text-[10px] text-cyan-600 dark:text-cyan-400/70">SOC Dashboard Access</p>
-              </button>
-
-              <button
-                type="button"
-                onClick={() => quickFillAccount('admin@zaalima.in', 'Admin@123')}
-                className="p-2 rounded-xl bg-blue-50 dark:bg-blue-950/40 hover:bg-blue-100 dark:hover:bg-blue-900/50 border border-blue-200 dark:border-blue-800/50 text-left transition-all group cursor-pointer"
-              >
-                <p className="font-semibold text-blue-800 dark:text-blue-300 group-hover:text-blue-900 dark:group-hover:text-blue-200">👑 Administrator</p>
-                <p className="text-[10px] text-blue-600 dark:text-blue-400/70">SOC Dashboard Access</p>
-              </button>
-            </div>
-          </div>
         </div>
 
         {/* Disclaimer */}

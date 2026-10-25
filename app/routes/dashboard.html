@@ -166,7 +166,7 @@
                     <option value="30d">Last 30 Days</option>
                 </select>
                 <button class="btn-primary" onclick="refreshCurrentPage()">Refresh</button>
-                <div style="width: 32px; height: 32px; background: #e2e8f0; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 12px; font-weight: bold; color: #475569;" id="user-avatar-badge">AD</div>
+                <div style="width: 32px; height: 32px; background: #e2e8f0; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 12px; font-weight: bold; color: #475569;" id="user-avatar-badge">U1</div>
             </div>
         </div>
 
@@ -265,8 +265,8 @@
                             <button class="btn-primary" onclick="sendChat()" id="chat-send-btn" style="background: var(--primary); color: #fff; border: none; font-weight: bold;">Send</button>
                         </div>
                         <div style="display: flex; gap: 15px; font-size: 12px; color: var(--text-muted);">
-                            <label>Token: <input type="password" id="chat-auth-token" value="dev-gateway-key-llama3" style="padding: 4px; border-radius: 3px; font-size: 12px; width: 150px;"></label>
-                            <label>User: <input type="text" id="chat-user-id" value="dashboard-user" style="padding: 4px; border-radius: 3px; font-size: 12px; width: 100px;"></label>
+                            <label>Token: <input type="password" id="chat-auth-token" placeholder="Bearer Token" style="padding: 4px; border-radius: 3px; font-size: 12px; width: 150px;"></label>
+                            <label>User: <input type="text" id="chat-user-id" placeholder="User ID" style="padding: 4px; border-radius: 3px; font-size: 12px; width: 100px;"></label>
                             <span id="chat-status" style="margin-left: auto;"></span>
                         </div>
                     </div>
@@ -371,7 +371,7 @@
                 <div class="card-header" style="display: flex; justify-content: space-between; align-items: center; gap: 15px; flex-wrap: wrap;">
                     <span>Active Users</span>
                     <div style="display: flex; gap: 12px; align-items: center; flex-wrap: wrap;">
-                        <input type="text" id="userSearchInput" placeholder="Search users by name, email, role..." style="width: 220px;" oninput="loadUsersPage()">
+                        <input type="text" id="userSearchInput" placeholder="Search users by name, role, department..." style="width: 240px;" oninput="loadUsersPage()">
                         <select id="userRoleFilter" onchange="loadUsersPage()" style="width: 130px;">
                             <option value="ALL">All Roles</option>
                         </select>
@@ -450,18 +450,37 @@
             return `<span class="change-neutral">--</span>`;
         }
 
+        const anonymizedUserMap = new Map();
+        let userCounter = 1;
+
+        function getAnonymizedUserLabel(userStr) {
+            if (!userStr || userStr === 'none' || userStr === 'Unknown') {
+                return 'System';
+            }
+            const clean = userStr.replace(/^Bearer\s+/i, '').trim();
+            if (!anonymizedUserMap.has(clean)) {
+                anonymizedUserMap.set(clean, `User ${userCounter++}`);
+            }
+            return anonymizedUserMap.get(clean);
+        }
+
         function formatUserBadge(userStr) {
             if (!userStr || userStr === 'none' || userStr === 'Unknown') {
                 return `<span class="user-badge" style="color:#94a3b8; font-style:italic;">none</span>`;
             }
-            if (userStr.startsWith('Bearer ')) {
-                const keyName = userStr.replace('Bearer ', '').trim();
-                return `<span class="user-badge api-key" title="${userStr}">🔑 ${keyName || 'Gateway Key'}</span>`;
-            }
-            if (userStr.includes('admin')) {
-                return `<span class="user-badge admin">👤 ${userStr}</span>`;
-            }
-            return `<span class="user-badge">👤 ${userStr}</span>`;
+            const label = getAnonymizedUserLabel(userStr);
+            const isAdm = userStr.toLowerCase().includes('admin');
+            return `<span class="user-badge ${isAdm ? 'admin' : ''}">👤 ${label}</span>`;
+        }
+
+        function formatMaskedEmail(email) {
+            if (!email) return '—';
+            const parts = email.split('@');
+            if (parts.length !== 2) return '••••••';
+            const local = parts[0];
+            const domain = parts[1];
+            const maskedLocal = local.length > 2 ? local[0] + '•••' + local[local.length - 1] : '•••';
+            return `${maskedLocal}@${domain}`;
         }
 
         function formatModelBadge(modelStr) {
@@ -809,8 +828,9 @@
                     }
                     const avatar = document.getElementById('user-avatar-badge');
                     if (avatar) {
-                        avatar.innerText = (data.username || 'AD').slice(0, 2).toUpperCase();
-                        avatar.title = `${data.username} (${data.role})`;
+                        const anonLabel = getAnonymizedUserLabel(data.username);
+                        avatar.innerText = (anonLabel.replace('User ', 'U') || 'U1');
+                        avatar.title = `${anonLabel} (${data.role || 'Admin'})`;
                     }
                 }
             } catch(e) {}
@@ -888,7 +908,7 @@
 
                     html += `<tr>
                         <td>${formatUserBadge(u.username)}</td>
-                        <td style="font-family: var(--font-mono); font-size: 12px; color: #475569;">${u.email}</td>
+                        <td style="font-family: var(--font-mono); font-size: 12px; color: #475569;">${formatMaskedEmail(u.email)}</td>
                         <td><span class="badge ${roleBadgeClass}">${u.role}</span></td>
                         <td><span style="font-size: 13px; font-weight: 500; color: #334155;">🏢 ${u.department}</span></td>
                         <td><span class="badge badge-allowed">● ${u.status}</span></td>

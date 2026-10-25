@@ -3,7 +3,7 @@
 import React, { useState } from 'react';
 import { Key, Shield, User, Server, Check, X, AlertCircle } from 'lucide-react';
 import { GatewayAuth } from '../lib/types';
-import { DEFAULT_API_KEY, DEFAULT_GATEWAY_URL } from '../lib/api';
+import { DEFAULT_GATEWAY_URL } from '../lib/api';
 
 interface AuthModalProps {
   isOpen: boolean;
@@ -18,7 +18,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
   auth,
   onSaveAuth,
 }) => {
-  const [apiKey, setApiKey] = useState(auth.apiKey || DEFAULT_API_KEY);
+  const [apiKey, setApiKey] = useState(auth.apiKey || '');
   const [userId, setUserId] = useState(auth.userId || '');
   const [apiUrl, setApiUrl] = useState(auth.apiUrl || DEFAULT_GATEWAY_URL);
 
@@ -27,7 +27,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     onSaveAuth({
-      apiKey: apiKey.trim() || DEFAULT_API_KEY,
+      apiKey: apiKey.trim(),
       userId: userId.trim(),
       apiUrl: apiUrl.trim() || DEFAULT_GATEWAY_URL,
     });
@@ -68,12 +68,12 @@ export const AuthModal: React.FC<AuthModalProps> = ({
               type="password"
               value={apiKey}
               onChange={(e) => setApiKey(e.target.value)}
-              placeholder="e.g. dev-gateway-key-llama3"
+              placeholder="Enter your Gateway API Key"
               className="w-full px-3.5 py-2.5 rounded-xl bg-gray-950 border border-gray-800 text-xs text-white placeholder-gray-600 focus:outline-none focus:border-cyan-500 focus:ring-1 focus:ring-cyan-500 transition-all font-mono"
               required
             />
             <p className="text-[11px] text-gray-500">
-              Default dev key: <code className="text-cyan-400 font-mono">dev-gateway-key-llama3</code>
+              Configured via <code className="text-cyan-400 font-mono">GATEWAY_API_KEY</code> environment variable.
             </p>
           </div>
 
@@ -87,7 +87,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
               type="text"
               value={userId}
               onChange={(e) => setUserId(e.target.value)}
-              placeholder="e.g. sec_ops_user"
+              placeholder="e.g. your_username"
               className="w-full px-3.5 py-2.5 rounded-xl bg-gray-950 border border-gray-800 text-xs text-white placeholder-gray-600 focus:outline-none focus:border-cyan-500 focus:ring-1 focus:ring-cyan-500 transition-all"
             />
             <p className="text-[11px] text-gray-500">
