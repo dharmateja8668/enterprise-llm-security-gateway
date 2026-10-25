@@ -74,9 +74,10 @@ async def readiness_check(db: Session = Depends(get_db)):
         db_ok = False
 
     try:
-        from app.security.rate_limiter import redis_client
-        if redis_client:
-            redis_ok = bool(redis_client.ping())
+        from app.security.rate_limiter import get_redis
+        client = get_redis()
+        if client:
+            redis_ok = bool(client.ping())
         else:
             redis_ok = True
     except Exception:

@@ -52,7 +52,7 @@ spec:
                   key: POSTGRES_PASSWORD
             - name: POSTGRES_DB
               valueFrom:
-                configMapRef:
+                configMapKeyRef:
                   name: gateway-config
                   key: POSTGRES_DB
           resources:
